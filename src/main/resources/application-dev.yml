@@ -1,0 +1,25 @@
+# 개발 장비 전용. 운영에 절대 들어가면 안 된다.
+#
+#   mvn spring-boot:run -Dspring-boot.run.profiles=postgresql,dev
+#
+# 여기 있는 값은 "내 장비에서 시험하기" 를 위한 것이다. 운영에 쓸 값은
+# 환경 변수로 넣는다.
+weboffice:
+  view:
+    # 보기 끝점을 켜고 내 장비에서 부를 수 있게 연다. 기본(application.yml)은
+    # 꺼져 있다 - 인증 없는 업로드 끝점이라 쓰려는 사람이 직접 켜야 한다.
+    enabled: true
+    # 관리자 화면(/admin/views)을 볼 사람. 로그인 없는 모드에서는 관리자가 될
+    # 길이 없으므로 이 목록은 등록 로그인을 쓸 때만 뜻이 있다.
+    admins: []
+    callers:
+      - name: 내장비
+        addresses:
+          - 127.0.0.1
+          - ::1
+  realtime:
+    # 127.0.0.1 을 함께 연다. 한 브라우저로 두 사람을 만들려면 쿠키 저장소가
+    # 갈려야 하고, 그것은 호스트별이라 localhost 와 127.0.0.1 로 나눠야 한다.
+    # origin 을 안 열면 그 창만 실시간이 죽어, 반영이 안 되는 것이 기능 탓인지
+    # 설정 탓인지 알 수 없게 된다.
+    allowed-origin-patterns: http://localhost:*,http://127.0.0.1:*

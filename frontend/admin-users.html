@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>사용자 관리 — Web Office</title>
+    <style>
+      body { margin: 0; font-family: system-ui, sans-serif; color: #333; padding: 24px; }
+      h1 { font-size: 18px; margin: 0 0 4px; }
+      .users-note { color: #888; font-size: 13px; margin: 0 0 18px; }
+
+      .users-form { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 18px; }
+      .users-form input, .users-form select {
+        font: inherit; padding: 5px 10px; border: 1px solid #d0d5da; border-radius: 4px;
+      }
+      .users-form input[name="email"] { min-width: 240px; }
+      .users-form button {
+        font: inherit; padding: 5px 14px; border: 1px solid #1a5fc8; border-radius: 4px;
+        background: #1a5fc8; color: #fff; cursor: pointer;
+      }
+      .users-form button:disabled { opacity: .5; cursor: default; }
+
+      /* 발급된 초대 링크. 한 번만 보이므로 눈에 띄어야 한다. */
+      .users-invite {
+        border: 1px solid #b9d3f5; background: #f3f8ff; border-radius: 6px;
+        padding: 12px 14px; margin-bottom: 18px; font-size: 13px;
+      }
+      .users-invite[hidden] { display: none; }
+      .users-invite strong { display: block; margin-bottom: 6px; }
+      .users-invite code {
+        display: block; word-break: break-all; background: #fff; padding: 8px;
+        border: 1px solid #dde4ec; border-radius: 4px; margin-bottom: 6px;
+      }
+      .users-invite button {
+        font: inherit; font-size: 12px; padding: 3px 10px; border: 1px solid #d0d5da;
+        border-radius: 4px; background: #fff; cursor: pointer;
+      }
+
+      .users-head, .users-row {
+        display: grid; grid-template-columns: 1fr 180px 80px 110px 150px;
+        gap: 8px; padding: 7px 0; border-bottom: 1px solid #f0f2f4; font-size: 13px;
+      }
+      .users-head { color: #888; font-size: 12px; border-bottom-color: #d0d5da; }
+      .users-cell { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .users-off { color: #aaa; }
+      .users-row button {
+        font: inherit; font-size: 12px; padding: 2px 8px; border: 1px solid #d0d5da;
+        border-radius: 4px; background: #fff; cursor: pointer; margin-right: 4px;
+      }
+      .users-row button:hover { border-color: #1a5fc8; color: #1a5fc8; }
+      .users-empty { color: #888; padding: 14px 0; }
+      .users-error { color: #c0392b; font-size: 13px; margin: 10px 0; }
+      .users-error[hidden] { display: none; }
+    </style>
+  </head>
+  <body>
+    <h1>사용자 관리</h1>
+    <p class="users-note">
+      이메일을 적으면 계정을 만들고 1회용 초대 링크를 돌려준다. 그 링크로 사용자가
+      자기 비밀번호를 직접 정한다 — 관리자는 남의 비밀번호를 정하거나 볼 수 없다.
+    </p>
+    <div id="usersRoot"></div>
+    <script type="module" src="/src/userAdminMain.ts"></script>
+  </body>
+</html>

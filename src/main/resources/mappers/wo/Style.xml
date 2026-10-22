@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="weboffice.sheet.StyleMapper">
+
+    <select id="selectStyleSeqByCode" resultType="java.lang.Long">
+        SELECT STYLE_SEQ
+          FROM wo_cell_style_master
+         WHERE WORKBOOK_SEQ = #{workbookSeq}
+           AND STYLE_CODE   = #{styleCode}
+           AND DEL_DATETIME IS NULL
+    </select>
+
+    <!--
+      벤더 분기가 필요 없다. PostgreSQL 의 jsonb 도 MyBatis 가 문자열로 읽어 준다.
+
+      다만 읽히는 문자열은 <b>우리가 쓴 것과 같지 않다</b>. jsonb 는 저장할 때
+      재직렬화해 콜론 뒤에 공백을 넣는다. 그래서 이 값을 받는 쪽은 문자열을
+      찾지 말고 파서를 써야 한다 - StyleService.numberFormatOf 참고.
+    -->
+    <!-- 시트를 열 때 쓰는 묶음 조회. 하나씩 물으면 서식 종류만큼 왕복이 쌓인다. -->
+    <select id="selectStylesBySeqs" resultType="weboffice.sheet.StyleRow">
+        SELECT STYLE_SEQ, WORKBOOK_SEQ, STYLE_CODE, STYLE_VALUE
+          FROM wo_cell_style_master
+         WHERE DEL_DATETIME IS NULL
+           AND STYLE_SEQ IN
+        <foreach collection="styleSeqs" item="styleSeq" open="(" separator="," close=")">
+               #{styleSeq}
+        </foreach>
+    </select>
+
+    <select id="selectStyleValue" resultType="java.lang.String">
+        SELECT STYLE_VALUE
+          FROM wo_cell_style_master
+         WHERE STYLE_SEQ = #{styleSeq}
+           AND DEL_DATETIME IS NULL
+    </select>
+
+    <!--
+      기본(H2): STYLE_VALUE 가 CLOB 이라 문자열을 그대로 넣는다.
+      PostgreSQL 쪽은 jsonb 라 아래 databaseId="postgresql" 문장이 따로 있다.
+    -->
+    <insert id="insertStyle" useGeneratedKeys="true"
+            keyProperty="style.styleSeq" keyColumn="STYLE_SEQ">
+        INSERT INTO wo_cell_style_master (
+            WORKBOOK_SEQ, STYLE_CODE, STYLE_VALUE, INPUT_DATETIME, INPUT_USER
+        ) VALUES (
+            #{style.workbookSeq}, #{style.styleCode}, #{style.styleValue},
+            CURRENT_TIMESTAMP, #{userKey}
+        )
+    </insert>
+
+    <!--
+      PostgreSQL 만 별도로 둔다. jsonb 컬럼에 JDBC 가 문자열을 보내면
+      "column STYLE_VALUE is of type jsonb but expression is of type character varying"
+      로 거부한다. 명시 캐스팅으로 분기 안에서 해결한다 - stringtype=unspecified 같은
+      전역 설정은 다른 컬럼의 타입 추론까지 바꾸므로 쓰지 않는다.
+
+      이 구문은 H2 로 검증되지 않는다. 실 PostgreSQL 접속 시 처음 실행된다.
+    -->
+    <insert id="insertStyle" databaseId="postgresql" useGeneratedKeys="true"
+            keyProperty="style.styleSeq" keyColumn="STYLE_SEQ">
+        INSERT INTO wo_cell_style_master (
+            WORKBOOK_SEQ, STYLE_CODE, STYLE_VALUE, INPUT_DATETIME, INPUT_USER
+        ) VALUES (
+            #{style.workbookSeq}, #{style.styleCode},
+            CAST(#{style.styleValue} AS jsonb),
+            CURRENT_TIMESTAMP, #{userKey}
+        )
+    </insert>
+
+</mapper>

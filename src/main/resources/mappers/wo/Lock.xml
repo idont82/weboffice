@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="weboffice.lock.LockMapper">
+
+    <!--
+      TTL 산술을 벤더별로 나누지 않는다. CURRENT_TIMESTAMP 에 초를 더하는
+      INTERVAL '1' SECOND * n 표현을 PostgreSQL 과 H2 가 모두 받는다.
+
+      CAST(... AS INT) 가 붙은 이유: 리터럴이 아니라 바인드 파라미터를 넘기면
+      H2 가 타입을 못 정해 "Feature not supported: INTERVAL SECOND * UNKNOWN"
+      으로 거부한다(2026-08-04 실측). 2026-08-03 실측 때는 리터럴이라 통과했다.
+
+      만료 시각을 자바에서 LocalDateTime 으로 계산해 넘기지 않는 이유: 만료
+      판정(EXPIRE_DATETIME > CURRENT_TIMESTAMP)이 DB 시계로 이뤄진다. 기록만
+      앱 시계로 하면 두 시계가 어긋난 만큼 잠금이 일찍 또는 늦게 풀린다.
+    -->
+
+    <sql id="lockColumns">
+        LOCK_SEQ, SHEET_SEQ, FROM_ROW_NO, FROM_COLUMN_NO, TO_ROW_NO, TO_COLUMN_NO,
+        LOCK_USER, SESSION_KEY, ACQUIRE_DATETIME, EXPIRE_DATETIME
+    </sql>
+
+    <!--
+      잠금 획득의 직렬화 지점. 반환값은 쓰지 않고 행 잠금만 얻는다.
+      pg_advisory_xact_lock 같은 벤더 전용 기능을 쓰지 않는 이유는 이식성이다.
+    -->
+    <select id="lockSheetRow" resultType="java.lang.Long">
+        SELECT SHEET_SEQ
+          FROM wo_workbook_sheet_line
+         WHERE SHEET_SEQ = #{sheetSeq}
+           AND DEL_DATETIME IS NULL
+        FOR UPDATE
+    </select>
+
+    <select id="selectActiveLocks" resultType="weboffice.lock.LockRow">
+        SELECT <include refid="lockColumns"/>
+          FROM wo_sheet_lock_line
+         WHERE SHEET_SEQ = #{sheetSeq}
+           AND DEL_DATETIME IS NULL
+           AND EXPIRE_DATETIME &gt; CURRENT_TIMESTAMP
+    </select>
+
+    <select id="selectLock" resultType="weboffice.lock.LockRow">
+        SELECT <include refid="lockColumns"/>
+          FROM wo_sheet_lock_line
+         WHERE LOCK_SEQ = #{lockSeq}
+           AND DEL_DATETIME IS NULL
+    </select>
+
+    <insert id="insertLock" useGeneratedKeys="true"
+            keyProperty="lock.lockSeq" keyColumn="LOCK_SEQ">
+        INSERT INTO wo_sheet_lock_line (
+            SHEET_SEQ, FROM_ROW_NO, FROM_COLUMN_NO, TO_ROW_NO, TO_COLUMN_NO,
+            LOCK_USER, SESSION_KEY, ACQUIRE_DATETIME, EXPIRE_DATETIME,
+            INPUT_DATETIME, INPUT_USER
+        ) VALUES (
+            #{lock.sheetSeq}, #{lock.fromRowNo}, #{lock.fromColumnNo},
+            #{lock.toRowNo}, #{lock.toColumnNo}, #{lock.lockUser}, #{lock.sessionKey},
+            CURRENT_TIMESTAMP,
+            CURRENT_TIMESTAMP + (INTERVAL '1' SECOND * CAST(#{ttlSeconds} AS INT)),
+            CURRENT_TIMESTAMP, #{userKey}
+        )
+    </insert>
+
+    <update id="releaseLock">
+        UPDATE wo_sheet_lock_line
+           SET DEL_DATETIME = CURRENT_TIMESTAMP,
+               DEL_USER      = #{userKey}
+         WHERE LOCK_SEQ = #{lockSeq}
+           AND DEL_DATETIME IS NULL
+    </update>
+
+    <!-- LOCK_USER 조건이 빠지면 남이 남의 잠금을 무한 연장할 수 있다. -->
+    <update id="heartbeat">
+        UPDATE wo_sheet_lock_line
+           SET EXPIRE_DATETIME = CURRENT_TIMESTAMP + (INTERVAL '1' SECOND * CAST(#{ttlSeconds} AS INT)),
+               MOD_DATETIME    = CURRENT_TIMESTAMP,
+               MOD_USER         = #{userKey}
+         WHERE LOCK_SEQ = #{lockSeq}
+           AND LOCK_USER = #{userKey}
+           AND DEL_DATETIME IS NULL
+    </update>
+
+    <update id="expireOverdueLocks">
+        UPDATE wo_sheet_lock_line
+           SET DEL_DATETIME = CURRENT_TIMESTAMP,
+               DEL_USER      = 'SYSTEM'
+         WHERE DEL_DATETIME IS NULL
+           AND EXPIRE_DATETIME &lt;= CURRENT_TIMESTAMP
+    </update>
+
+</mapper>

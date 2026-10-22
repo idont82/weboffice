@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>문서 보기 — KCC Web Office</title>
+    <style>
+      html, body { margin: 0; height: 100%; font-family: system-ui, sans-serif; }
+      #viewerRoot { position: relative; height: 100%; }
+      #viewerBar {
+        position: absolute; left: 0; right: 0; top: 0; height: 34px; z-index: 1500;
+        display: flex; align-items: center; gap: 10px; padding: 0 12px;
+        background: #fff; border-bottom: 1px solid #e8ebed; box-sizing: border-box;
+        color: #333; font-size: 13px;
+      }
+      #viewerName { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      /* 보기 전용이라는 것을 적는다. 저장이 없는 화면인지 아닌지는 눈으로 알 수 없다. */
+      #viewerBadge { color: #888; font-size: 12px; flex: none; }
+      #sourceLink {
+        color: #aaa; font-size: 11px; text-decoration: none;
+        flex: none; margin-left: auto;
+      }
+      #sourceLink:hover { color: #1a5fc8; text-decoration: underline; }
+      #viewerApp { position: absolute; inset: 0; top: 34px; }
+      #viewerNotice {
+        position: absolute; inset: 0; display: none; align-items: center;
+        justify-content: center; color: #777; text-align: center; padding: 40px;
+      }
+
+      /*
+        Univer 의 문단 손잡이와 그 팝업(H1~H5 · 복사 · 잘라내기 · 삭제 · 문단 설정 ·
+        아래에 삽입)을 감춘다.
+
+        명령 자체는 blockDocEditing 이 이미 취소한다 - 새는 것은 없다. 그런데 눌리기는
+        하는 메뉴가 보이면 "되는데 아무 일이 안 나는" 화면이 되어 사용자를 속인다
+        (2026-08-20 지적).
+
+        **body 직속에 뜬다.** 처음에는 #viewerApp 안으로 좁혀 적었다가 하나도 안
+        걸렸다(실측: 손잡이의 조상이 body 바로 아래 section 이다). 이 화면은 뷰어
+        하나만 쓰는 쪽이라 문서 전체에 건다.
+
+        Univer 안쪽 이름에 기대는 것이라 판올림에 이름이 바뀌면 손잡이가 다시 보일
+        뿐이다. 그때도 명령 차단은 그대로 산다 - 안전한 쪽으로 실패한다.
+      */
+      .univer-cursor-grab,
+      .univer-popup,
+      [data-u-comp="doc-paragraph-setting"],
+      [class*="paragraph-setting"] {
+        display: none !important;
+      }
+      /* 닫힌 팝업이 화면에 남아 겹친다(편집 화면과 같다). 감춘다. */
+      body > div > [data-state="closed"] { display: none !important; }
+
+      /* 손잡이를 담은 칸. 안이 비어도 자리를 차지해 글을 가린다. */
+      body > div > section[class*="univer-pointer-events-auto"][class*="univer-fixed"] {
+        display: none !important;
+      }
+
+      /* 발표 자료 보기. 편집 화면(index.html)의 #slideView 와 같은 모양이다. */
+      #viewerApp.slide-view { padding: 16px 24px 40px; overflow: auto; background: #f6f7f8; }
+      #viewerApp .slide-page {
+        position: relative; margin: 0 auto 20px; background: #fff;
+        border: 1px solid #e3e6e8; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+        overflow: hidden;
+      }
+      /* 슬라이드 안 조각은 원본 자리 그대로 앉힌다. 흐름에 두면 자리가 무너진다. */
+      /* 색을 칠한 도형. 글자·그림과 같은 자리 셈을 쓰되 맨 밑에 깔린다. */
+      #viewerApp .slide-shape { position: absolute; }
+      #viewerApp .slide-text, #viewerApp .slide-table, #viewerApp .slide-image {
+        position: absolute;
+      }
+      #viewerApp .slide-text { white-space: pre-wrap; font-family: Aptos, Calibri, "Malgun Gothic", system-ui, sans-serif; line-height: 1.25; }
+      #viewerApp .slide-image { object-fit: contain; }
+      #viewerApp .slide-table { border-collapse: collapse; font-size: 12px; }
+      #viewerApp .slide-table td { border: 1px solid #b6bcc1; padding: 2px 6px; }
+      #viewerApp .slide-no {
+        color: #888; font-size: 12px; margin: 0 auto 4px; text-align: right;
+      }
+      #viewerApp .slide-notes {
+        color: #555; font-size: 12px; margin: 0 auto 20px; white-space: pre-wrap;
+        border-left: 3px solid #d7dbde; padding-left: 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="viewerRoot">
+      <div id="viewerBar">
+        <span id="viewerName"></span>
+        <span id="viewerBadge">보기 전용</span>
+        <!-- AGPL 13조. 보기 전용 화면도 망으로 서비스하는 판이다. -->
+        <a id="sourceLink" href="https://github.com/idont82/weboffice"
+           target="_blank" rel="noopener">소스</a>
+      </div>
+      <div id="viewerApp"></div>
+      <div id="viewerNotice"></div>
+    </div>
+    <script type="module" src="/src/viewer.ts"></script>
+  </body>
+</html>

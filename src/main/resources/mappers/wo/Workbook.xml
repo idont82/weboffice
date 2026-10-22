@@ -1,0 +1,268 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!--
+  시각은 CURRENT_TIMESTAMP 로 통일한다. PostgreSQL 과 H2 가 모두 표준으로
+  지원하므로 벤더 분기가 필요 없다. now() 처럼 벤더 고유 함수를 쓰면 분기
+  지점이 하나 더 는다. 분기는 적을수록 좋다.
+-->
+<mapper namespace="weboffice.workbook.WorkbookMapper">
+
+    <insert id="insertWorkbook" useGeneratedKeys="true"
+            keyProperty="workbook.workbookSeq" keyColumn="WORKBOOK_SEQ">
+        INSERT INTO wo_workbook_master (
+            WORKBOOK_NAME, OWNER_USER, DOC_VER, DOC_TYPE, USE_YN,
+            INPUT_DATETIME, INPUT_USER
+        ) VALUES (
+            #{workbook.workbookName}, #{workbook.ownerUser}, 1,
+            <!-- 안 주면 시트다. 지금까지 만든 문서가 전부 그렇다. -->
+            COALESCE(#{workbook.docType}, 'SHEET'), 'Y',
+            CURRENT_TIMESTAMP, #{userKey}
+        )
+    </insert>
+
+    <select id="selectWorkbook" resultType="weboffice.workbook.WorkbookDto">
+        SELECT WORKBOOK_SEQ, WORKBOOK_NAME, OWNER_USER, DOC_VER, DOC_TYPE, USE_YN, SHARE_TOKEN
+          FROM wo_workbook_master
+         WHERE WORKBOOK_SEQ = #{workbookSeq}
+           AND DEL_DATETIME IS NULL
+    </select>
+
+    <!--
+      정렬은 최근 손댄 순이다. MOD_DATETIME 은 한 번도 안 고친 문서에서 NULL 이라
+      COALESCE 로 INPUT_DATETIME 을 쓴다. NULLS LAST 를 쓰지 않는 이유는 세 벤더의
+      기본 정렬 위치가 달라 분기가 생기기 때문이다.
+    -->
+    <!--
+        목록 카드 미리보기. 문서마다 첫 시트(SHEET_NO = 0)의 앞부분만 본다.
+
+        값이 아니라 보이는 글자를 뽑는다. 숫자·날짜도 카드에서는 글자로만 쓰이므로
+        형마다 갈래를 두면 매퍼가 DB 방언으로 갈라진다 - 문자 값만 담고 나머지는
+        빈 칸으로 둔다. 카드에서 셈을 하지 않는다.
+    -->
+    <select id="selectPreviewCells"
+            resultType="weboffice.workbook.PreviewCellRow">
+        SELECT S.WORKBOOK_SEQ, C.ROW_NO, C.COLUMN_NO, C.TEXT_VALUE AS TEXT
+          FROM wo_sheet_cell_line C
+          JOIN wo_workbook_sheet_line S ON S.SHEET_SEQ = C.SHEET_SEQ
+         WHERE S.SHEET_NO = 0
+           AND S.DEL_DATETIME IS NULL
+           AND C.ROW_NO &lt; #{rowCount}
+           AND C.COLUMN_NO &lt; #{columnCount}
+           AND C.TEXT_VALUE IS NOT NULL
+           AND S.WORKBOOK_SEQ IN
+        <foreach item="seq" collection="workbookSeqs" open="(" separator="," close=")">
+            #{seq}
+        </foreach>
+         ORDER BY S.WORKBOOK_SEQ, C.ROW_NO, C.COLUMN_NO
+    </select>
+
+    <select id="selectWorkbooksByOwner"
+            resultType="weboffice.workbook.WorkbookRow">
+        SELECT W.WORKBOOK_SEQ, W.WORKBOOK_NAME, W.OWNER_USER, W.DOC_TYPE,
+               'OWNER' AS ROLE_CODE,
+               (SELECT COUNT(*) FROM wo_workbook_member_map M
+                 WHERE M.WORKBOOK_SEQ = W.WORKBOOK_SEQ
+                   AND M.USE_YN = 'Y' AND M.DEL_DATETIME IS NULL) AS MEMBER_COUNT,
+               CASE WHEN W.SHARE_TOKEN IS NULL THEN 0 ELSE 1 END AS SHARED_PUBLICLY,
+               COALESCE(W.MOD_DATETIME, W.INPUT_DATETIME) AS MODIFIED_AT
+          FROM wo_workbook_master W
+         WHERE W.OWNER_USER = #{userKey}
+           AND W.DEL_DATETIME IS NULL
+           <!--
+             만들어만 보고 닫은 문서는 감춘다(2026-08-20 지적: 「새 시트」를 눌러
+             보기만 해도 파일함에 쌓인다). 제목이 기본 그대로이고, 셀도 그림도
+             글도 없고, 남에게 넘기지도 않은 것만 해당한다. 넷 중 하나라도
+             있으면 곧바로 다시 보인다.
+
+             글자 길이로 잰다. <![CDATA[<> '']]> 는 빈 문자열과 NULL 을 벤더가
+             어떻게 보느냐에 따라 답이 갈려 길이로 재는 쪽이 안전하다.
+           -->
+           AND NOT (
+                 W.WORKBOOK_NAME = #{untitled}
+             AND W.SHARE_TOKEN IS NULL
+             AND NOT EXISTS (
+                 SELECT 1 FROM wo_workbook_member_map M2
+                  WHERE M2.WORKBOOK_SEQ = W.WORKBOOK_SEQ
+                    AND M2.USE_YN = 'Y' AND M2.DEL_DATETIME IS NULL)
+             AND NOT EXISTS (
+                 SELECT 1 FROM wo_workbook_sheet_line S2
+                   JOIN wo_sheet_cell_line C2 ON C2.SHEET_SEQ = S2.SHEET_SEQ
+                  WHERE S2.WORKBOOK_SEQ = W.WORKBOOK_SEQ
+                    AND S2.DEL_DATETIME IS NULL
+                    AND C2.DEL_DATETIME IS NULL)
+             AND NOT EXISTS (
+                 SELECT 1 FROM wo_workbook_sheet_line S3
+                   JOIN wo_sheet_drawing_line D3 ON D3.SHEET_SEQ = S3.SHEET_SEQ
+                  WHERE S3.WORKBOOK_SEQ = W.WORKBOOK_SEQ
+                    AND S3.DEL_DATETIME IS NULL
+                    AND D3.DEL_DATETIME IS NULL)
+             AND NOT EXISTS (
+                 SELECT 1 FROM wo_doc_paragraph_line P2
+                  WHERE P2.WORKBOOK_SEQ = W.WORKBOOK_SEQ
+                    AND LENGTH(P2.TEXT_VALUE) > 0)
+             AND (SELECT COUNT(*) FROM wo_workbook_sheet_line S4
+                   WHERE S4.WORKBOOK_SEQ = W.WORKBOOK_SEQ
+                     AND S4.DEL_DATETIME IS NULL) <![CDATA[<=]]> 1
+           )
+         ORDER BY COALESCE(W.MOD_DATETIME, W.INPUT_DATETIME) DESC, W.WORKBOOK_SEQ DESC
+    </select>
+
+    <!--
+      소유자가 자기 문서의 구성원으로도 등록돼 있으면 목록에 두 번 나온다.
+      OWNER_USER 를 걸러 그것을 막는다.
+
+      MEMBER_COUNT 를 0 으로 두는 이유: 남의 문서에 누가 더 있는지는 알 필요가 없고,
+      알려 주면 그 자체가 정보 노출이다.
+    -->
+    <select id="selectWorkbooksByMember"
+            resultType="weboffice.workbook.WorkbookRow">
+        SELECT W.WORKBOOK_SEQ, W.WORKBOOK_NAME, W.OWNER_USER, W.DOC_TYPE,
+               M.ROLE_CODE,
+               0 AS MEMBER_COUNT,
+               CASE WHEN W.SHARE_TOKEN IS NULL THEN 0 ELSE 1 END AS SHARED_PUBLICLY,
+               COALESCE(W.MOD_DATETIME, W.INPUT_DATETIME) AS MODIFIED_AT
+          FROM wo_workbook_master W
+          JOIN wo_workbook_member_map M ON M.WORKBOOK_SEQ = W.WORKBOOK_SEQ
+         WHERE M.MEMBER_USER = #{userKey}
+           AND M.USE_YN = 'Y'
+           AND M.DEL_DATETIME IS NULL
+           AND W.DEL_DATETIME IS NULL
+           AND W.OWNER_USER &lt;&gt; #{userKey}
+         ORDER BY COALESCE(W.MOD_DATETIME, W.INPUT_DATETIME) DESC, W.WORKBOOK_SEQ DESC
+    </select>
+
+    <!--
+      이름·시트 칸·글 문단을 한 번에 훑는다. LIKE '%말%' 이라 인덱스를 타지 못하지만
+      문서 수가 수백 대인 지금은 이것으로 충분하다 - 느려지면 그때 벤더별 전문 검색을
+      쓴다. 맞은 토막은 MIN 으로 한 건만 집어 온다(문서마다 한 줄만 보여 준다).
+    -->
+    <select id="searchWorkbooks"
+            resultType="weboffice.workbook.WorkbookSearchRow">
+        SELECT W.WORKBOOK_SEQ, W.WORKBOOK_NAME, W.OWNER_USER, W.DOC_TYPE,
+               CASE WHEN W.OWNER_USER = #{userKey} THEN 'OWNER' ELSE M.ROLE_CODE END AS ROLE_CODE,
+               (SELECT COUNT(*) FROM wo_workbook_member_map MC
+                 WHERE MC.WORKBOOK_SEQ = W.WORKBOOK_SEQ
+                   AND MC.USE_YN = 'Y' AND MC.DEL_DATETIME IS NULL) AS MEMBER_COUNT,
+               CASE WHEN W.SHARE_TOKEN IS NULL THEN 0 ELSE 1 END AS SHARED_PUBLICLY,
+               COALESCE(W.MOD_DATETIME, W.INPUT_DATETIME) AS MODIFIED_AT,
+               (SELECT MIN(C.TEXT_VALUE)
+                  FROM wo_workbook_sheet_line S
+                  JOIN wo_sheet_cell_line C ON C.SHEET_SEQ = S.SHEET_SEQ
+                 WHERE S.WORKBOOK_SEQ = W.WORKBOOK_SEQ
+                   AND S.DEL_DATETIME IS NULL
+                   AND C.DEL_DATETIME IS NULL
+                   AND UPPER(C.TEXT_VALUE) LIKE #{like}) AS CELL_TEXT,
+               (SELECT MIN(P.TEXT_VALUE)
+                  FROM wo_doc_paragraph_line P
+                 WHERE P.WORKBOOK_SEQ = W.WORKBOOK_SEQ
+                   AND P.DEL_DATETIME IS NULL
+                   AND UPPER(P.TEXT_VALUE) LIKE #{like}) AS PARA_TEXT
+          FROM wo_workbook_master W
+          LEFT JOIN wo_workbook_member_map M
+                 ON M.WORKBOOK_SEQ = W.WORKBOOK_SEQ
+                AND M.MEMBER_USER = #{userKey}
+                AND M.USE_YN = 'Y'
+                AND M.DEL_DATETIME IS NULL
+         WHERE W.DEL_DATETIME IS NULL
+           AND W.USE_YN = 'Y'
+           AND (W.OWNER_USER = #{userKey} OR M.WORKBOOK_SEQ IS NOT NULL)
+           AND (
+                 UPPER(W.WORKBOOK_NAME) LIKE #{like}
+              OR EXISTS (
+                 SELECT 1
+                   FROM wo_workbook_sheet_line S2
+                   JOIN wo_sheet_cell_line C2 ON C2.SHEET_SEQ = S2.SHEET_SEQ
+                  WHERE S2.WORKBOOK_SEQ = W.WORKBOOK_SEQ
+                    AND S2.DEL_DATETIME IS NULL
+                    AND C2.DEL_DATETIME IS NULL
+                    AND UPPER(C2.TEXT_VALUE) LIKE #{like})
+              OR EXISTS (
+                 SELECT 1
+                   FROM wo_doc_paragraph_line P2
+                  WHERE P2.WORKBOOK_SEQ = W.WORKBOOK_SEQ
+                    AND P2.DEL_DATETIME IS NULL
+                    AND UPPER(P2.TEXT_VALUE) LIKE #{like})
+           )
+         ORDER BY COALESCE(W.MOD_DATETIME, W.INPUT_DATETIME) DESC, W.WORKBOOK_SEQ DESC
+    </select>
+
+    <update id="updateWorkbookName">
+        UPDATE wo_workbook_master
+           SET WORKBOOK_NAME = #{workbookName},
+               MOD_DATETIME  = CURRENT_TIMESTAMP,
+               MOD_USER       = #{userKey}
+         WHERE WORKBOOK_SEQ  = #{workbookSeq}
+           AND DEL_DATETIME IS NULL
+    </update>
+
+    <select id="selectWorkbookByShareToken"
+            resultType="weboffice.workbook.WorkbookDto">
+        SELECT WORKBOOK_SEQ, WORKBOOK_NAME, OWNER_USER, DOC_VER, USE_YN, SHARE_TOKEN
+          FROM wo_workbook_master
+         WHERE SHARE_TOKEN = #{shareToken}
+           AND DEL_DATETIME IS NULL
+    </select>
+
+    <!-- shareToken 이 null 이면 공개 해제다. 구문을 나누지 않는다. -->
+    <!--
+      문서 지우기. 소프트 삭제이므로 셀·시트는 그대로 남는다 - 되살릴 길을 남겨
+      두려는 것이다. 다만 SHARE_TOKEN 은 함께 비운다. 지운 문서가 링크로 계속
+      열리면 지운 것이 아니다.
+    -->
+    <update id="softDeleteWorkbook">
+        UPDATE wo_workbook_master
+           SET SHARE_TOKEN   = NULL,
+               DEL_DATETIME  = CURRENT_TIMESTAMP,
+               DEL_USER       = #{userKey}
+         WHERE WORKBOOK_SEQ = #{workbookSeq}
+           AND DEL_DATETIME IS NULL
+    </update>
+
+    <!-- 휴지통. 지운 지 30일까지만 보인다 - 그 뒤에는 화면에서 되살릴 길이 없다. -->
+    <select id="selectTrashByOwner" resultType="weboffice.workbook.TrashRow">
+        SELECT WORKBOOK_SEQ, WORKBOOK_NAME, DOC_TYPE, DEL_DATETIME AS DELETED_AT
+          FROM wo_workbook_master
+         WHERE OWNER_USER = #{userKey}
+           AND DEL_DATETIME IS NOT NULL
+           AND DEL_DATETIME >= #{since}
+         ORDER BY DEL_DATETIME DESC, WORKBOOK_SEQ DESC
+    </select>
+
+    <update id="restoreWorkbook">
+        UPDATE wo_workbook_master
+           SET DEL_DATETIME = NULL,
+               DEL_USER      = NULL,
+               MOD_DATETIME = CURRENT_TIMESTAMP,
+               MOD_USER      = #{userKey}
+         WHERE WORKBOOK_SEQ = #{workbookSeq}
+           AND OWNER_USER    = #{userKey}
+           AND DEL_DATETIME IS NOT NULL
+           AND DEL_DATETIME >= #{since}
+    </update>
+
+    <update id="updateShareToken">
+        UPDATE wo_workbook_master
+           SET SHARE_TOKEN  = #{shareToken},
+               MOD_DATETIME = CURRENT_TIMESTAMP,
+               MOD_USER      = #{userKey}
+         WHERE WORKBOOK_SEQ = #{workbookSeq}
+           AND DEL_DATETIME IS NULL
+    </update>
+
+    <!--
+      낙관적 락. 기대 버전이 어긋나면 갱신 행 수가 0 이 되고, 호출부는 그 값으로
+      충돌을 판정한다. 예외를 던지지 않는 이유는 호출부가 분기로 처리할 수 있고
+      테스트에서 단정하기도 쉽기 때문이다.
+    -->
+    <update id="bumpDocVer">
+        UPDATE wo_workbook_master
+           SET DOC_VER      = DOC_VER + 1,
+               MOD_DATETIME = CURRENT_TIMESTAMP,
+               MOD_USER      = #{userKey}
+         WHERE WORKBOOK_SEQ = #{workbookSeq}
+           AND DOC_VER      = #{expectedDocVer}
+           AND DEL_DATETIME IS NULL
+    </update>
+
+</mapper>

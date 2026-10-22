@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="weboffice.view.ViewCacheMapper">
+
+    <!--
+      담기는 upsert 다. FILE_HASH 가 기본키인데, 캐시 청소(deleteOld)는 10분마다
+      한 번만 돈다 - 그 사이 만료된(=selectCache 가 걸러 낸) 줄이 표에 그대로
+      남아 있다. 예전엔 insert 로 담다가 그 자리에서 기본키에 부딪히면 잡아서
+      selectCache 를 다시 불러 "남이 먼저 담았다"로 이어받았다.
+
+      그런데 PostgreSQL 은 트랜잭션 안에서 문장 하나가 실패하면 그 뒤 모든
+      질의를 거절한다(25P02: current transaction is aborted). 다시 읽기 자체가
+      그 트랜잭션 안의 질의라 25P02 로 또 터지고, ViewException 이 아니라서
+      CONVERT_FAILED 500 으로 나간다 - 캐시가 식은 뒤 청소가 돌 때까지(최대
+      10분) 그 문서를 아무도 못 열게 된다. H2 는 실패한 문장 뒤에도 질의를
+      받아 줘서 시험이 이 결함을 못 봤다(MODE=PostgreSQL 이어도 그렇다).
+
+      upsert 면 애초에 충돌이 안 나니 다시 읽기도, 25P02 도 없다. 동시에 두
+      요청이 같은 문서를 변환해도 upsert 라 마지막 것이 남고 둘 다 성공한다.
+    -->
+
+    <!-- 기본(H2). MODE=PostgreSQL 이어도 H2 는 ON CONFLICT 를 지원하지 않는다. -->
+    <insert id="upsertCache">
+        MERGE INTO wo_view_doc_cache T
+        USING (SELECT CAST(#{row.fileHash} AS VARCHAR(64)) AS FILE_HASH) S
+           ON (T.FILE_HASH = S.FILE_HASH)
+        WHEN MATCHED THEN UPDATE SET
+             DOC_TYPE       = #{row.docType},
+             SNAPSHOT_GZIP  = #{row.snapshotGzip},
+             BYTE_SIZE      = #{row.byteSize},
+             MADE_MS        = #{row.madeMs},
+             ENCRYPTED_YN   = #{row.encryptedYn},
+             INPUT_DATETIME = CURRENT_TIMESTAMP,
+             INPUT_USER      = #{userKey}
+        WHEN NOT MATCHED THEN INSERT (
+             FILE_HASH, DOC_TYPE, SNAPSHOT_GZIP, BYTE_SIZE, MADE_MS, ENCRYPTED_YN,
+             INPUT_DATETIME, INPUT_USER
+        ) VALUES (
+             #{row.fileHash}, #{row.docType}, #{row.snapshotGzip}, #{row.byteSize},
+             #{row.madeMs}, #{row.encryptedYn}, CURRENT_TIMESTAMP, #{userKey}
+        )
+    </insert>
+
+    <!--
+      PostgreSQL. 이 구문은 H2 로 검증되지 않는다. 실 PostgreSQL 접속 시
+      처음 실행된다 - Cell.xml 의 upsertCells 와 같은 사정이다.
+
+      INPUT_USER 에 EXCLUDED.INPUT_USER 가 아니라 #{userKey} 를 직접 쓴다.
+      "덮어쓴 사람을 삽입 컬럼에서 꺼낸다"는 표현이 의도를 숨긴다.
+    -->
+    <insert id="upsertCache" databaseId="postgresql">
+        INSERT INTO wo_view_doc_cache (
+            FILE_HASH, DOC_TYPE, SNAPSHOT_GZIP, BYTE_SIZE, MADE_MS, ENCRYPTED_YN,
+            INPUT_DATETIME, INPUT_USER
+        ) VALUES (
+            #{row.fileHash}, #{row.docType}, #{row.snapshotGzip}, #{row.byteSize},
+            #{row.madeMs}, #{row.encryptedYn}, CURRENT_TIMESTAMP, #{userKey}
+        )
+        ON CONFLICT (FILE_HASH) DO UPDATE SET
+            DOC_TYPE       = EXCLUDED.DOC_TYPE,
+            SNAPSHOT_GZIP  = EXCLUDED.SNAPSHOT_GZIP,
+            BYTE_SIZE      = EXCLUDED.BYTE_SIZE,
+            MADE_MS        = EXCLUDED.MADE_MS,
+            ENCRYPTED_YN   = EXCLUDED.ENCRYPTED_YN,
+            INPUT_DATETIME = EXCLUDED.INPUT_DATETIME,
+            INPUT_USER      = #{userKey}
+    </insert>
+    <!-- 만료는 지우기 전에도 조회에서 거른다. 배치가 늦게 돌 수 있다. -->
+    <select id="selectCache" resultType="weboffice.view.ViewCacheRow">
+        SELECT FILE_HASH, DOC_TYPE, SNAPSHOT_GZIP, BYTE_SIZE, MADE_MS, ENCRYPTED_YN,
+               INPUT_DATETIME
+          FROM wo_view_doc_cache
+         WHERE FILE_HASH = #{fileHash}
+           AND INPUT_DATETIME >= #{since}
+           AND DEL_DATETIME IS NULL
+    </select>
+
+    <delete id="deleteOld">
+        DELETE FROM wo_view_doc_cache
+         WHERE INPUT_DATETIME <![CDATA[<]]> #{before}
+    </delete>
+
+</mapper>

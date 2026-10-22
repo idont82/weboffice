@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="weboffice.doc.DocParagraphMapper">
+
+    <select id="selectParagraphs" resultType="weboffice.doc.DocParagraphDto">
+        SELECT PARAGRAPH_NO, TEXT_VALUE AS TEXT, STYLE_VALUE AS STYLE, RUNS_VALUE AS RUNS
+          FROM wo_doc_paragraph_line
+         WHERE WORKBOOK_SEQ = #{workbookSeq}
+           AND DEL_DATETIME IS NULL
+         ORDER BY PARAGRAPH_NO
+    </select>
+
+    <!--
+        지우고 넣는다. UPSERT 문법이 DB 마다 달라 갈래를 두느니 두 번 부른다 -
+        문단은 셀만큼 잦지 않다. 고친 문단만 오므로 건드는 줄도 적다.
+    -->
+    <delete id="deleteParagraphs">
+        DELETE FROM wo_doc_paragraph_line
+         WHERE WORKBOOK_SEQ = #{workbookSeq}
+           AND PARAGRAPH_NO IN
+        <foreach item="no" collection="paragraphNos" open="(" separator="," close=")">
+            #{no}
+        </foreach>
+    </delete>
+
+    <insert id="insertParagraphs">
+        INSERT INTO wo_doc_paragraph_line (
+            WORKBOOK_SEQ, PARAGRAPH_NO, TEXT_VALUE, STYLE_VALUE, RUNS_VALUE,
+            INPUT_DATETIME, INPUT_USER
+        ) VALUES
+        <foreach item="row" collection="rows" separator=",">
+            (#{workbookSeq}, #{row.paragraphNo}, #{row.text}, #{row.style}, #{row.runs},
+             CURRENT_TIMESTAMP, #{userKey})
+        </foreach>
+    </insert>
+</mapper>

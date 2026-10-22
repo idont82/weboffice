@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="weboffice.view.ViewEventQueryMapper">
+
+    <select id="selectEvents" resultType="weboffice.view.ViewEventView">
+        SELECT EVENT_TYPE, CALLER_SYSTEM, FILE_NAME, BYTE_SIZE, ENCRYPTED_YN, VIEWER_NAME,
+               TOOK_MS, RESULT_CODE, MESSAGE, CLIENT_IP, INPUT_DATETIME AS CHANGED_AT
+          FROM wo_view_event_log
+         WHERE INPUT_DATETIME >= #{since}
+        <if test="eventType != null">
+           AND EVENT_TYPE = #{eventType}
+        </if>
+         ORDER BY EVENT_SEQ DESC
+         FETCH FIRST #{limit} ROWS ONLY
+    </select>
+
+    <select id="countByType" resultType="int">
+        SELECT COUNT(*) FROM wo_view_event_log
+         WHERE INPUT_DATETIME >= #{since}
+           AND EVENT_TYPE = #{eventType}
+    </select>
+
+    <select id="averageTookMs" resultType="java.lang.Integer">
+        SELECT AVG(TOOK_MS) FROM wo_view_event_log
+         WHERE INPUT_DATETIME >= #{since}
+           AND EVENT_TYPE = #{eventType}
+           AND TOOK_MS IS NOT NULL
+    </select>
+
+    <select id="countCacheRows" resultType="int">
+        SELECT COUNT(*) FROM wo_view_doc_cache
+    </select>
+
+</mapper>

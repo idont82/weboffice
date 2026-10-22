@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="weboffice.view.ViewEventMapper">
+
+    <insert id="insertEvent">
+        INSERT INTO wo_view_event_log (
+            EVENT_TYPE, SESSION_SEQ, CALLER_SYSTEM, FILE_NAME, BYTE_SIZE, ENCRYPTED_YN,
+            VIEWER_NAME, TOOK_MS, RESULT_CODE, MESSAGE, CLIENT_IP, USER_AGENT,
+            INPUT_DATETIME, INPUT_USER
+        ) VALUES (
+            #{row.eventType}, #{row.sessionSeq}, #{row.callerSystem}, #{row.fileName},
+            #{row.byteSize}, #{row.encryptedYn}, #{row.viewerName}, #{row.tookMs},
+            #{row.resultCode}, #{row.message}, #{row.clientIp}, #{row.userAgent},
+            CURRENT_TIMESTAMP, #{userKey}
+        )
+    </insert>
+
+</mapper>

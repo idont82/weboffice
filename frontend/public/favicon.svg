@@ -1,0 +1,22 @@
+<!--
+  탭 아이콘. 시트(격자)를 초록으로 그린다.
+
+  작게 줄면 격자가 뭉개지므로 칸을 넉넉히 잡고 선은 배경을 파내는 방식으로 그린다 -
+  얇은 흰 선을 얹으면 16px 에서 사라진다.
+
+  색은 화면 테마(greenTheme)와 맞춘다.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <rect x="1" y="1" width="30" height="30" rx="6" fill="#0e7c4a"/>
+
+  <!-- 머리줄. 본문보다 진하게 두어 표라는 것이 한눈에 보이게 한다. -->
+  <rect x="6" y="7" width="20" height="5" rx="1" fill="#ffffff" opacity="0.55"/>
+
+  <!-- 본문 칸 2x3. 사이 간격이 곧 격자선이다. -->
+  <g fill="#ffffff">
+    <rect x="6"  y="14" width="9" height="5" rx="1"/>
+    <rect x="17" y="14" width="9" height="5" rx="1"/>
+    <rect x="6"  y="21" width="9" height="5" rx="1"/>
+    <rect x="17" y="21" width="9" height="5" rx="1"/>
+  </g>
+</svg>

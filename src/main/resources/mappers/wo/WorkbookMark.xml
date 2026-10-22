@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="weboffice.workbook.WorkbookMarkMapper">
+
+    <!--
+      내 표시 전부를 한 번에 가져온다. 문서마다 조회하면 목록 한 번에 조회가
+      문서 수만큼 붙는다(미리보기와 같은 이유).
+
+      지운 문서 것도 함께 오지만 목록에 그 문서가 없어 그냥 버려진다 - 문서를
+      지울 때 표시까지 따라 지우려면 지우기 길이 이 표를 알아야 한다.
+    -->
+    <select id="selectMarks" resultType="weboffice.workbook.WorkbookMarkRow">
+        SELECT WORKBOOK_SEQ, STARRED_YN, COLOR_CODE
+          FROM wo_user_workbook_mark
+         WHERE USER_KEY = #{userKey}
+    </select>
+
+    <delete id="deleteMark">
+        DELETE FROM wo_user_workbook_mark
+         WHERE USER_KEY = #{userKey}
+           AND WORKBOOK_SEQ = #{workbookSeq}
+    </delete>
+
+    <!-- 기본(H2). -->
+    <insert id="upsertMark">
+        MERGE INTO wo_user_workbook_mark T
+        USING (SELECT CAST(#{userKey} AS VARCHAR) AS USER_KEY,
+                      CAST(#{workbookSeq} AS BIGINT) AS WORKBOOK_SEQ) S
+           ON (T.USER_KEY = S.USER_KEY AND T.WORKBOOK_SEQ = S.WORKBOOK_SEQ)
+        WHEN MATCHED THEN UPDATE SET
+             STARRED_YN   = #{starredYn},
+             COLOR_CODE   = #{colorCode},
+             MOD_DATETIME = CURRENT_TIMESTAMP,
+             MOD_USER      = #{userKey}
+        WHEN NOT MATCHED THEN INSERT (
+             USER_KEY, WORKBOOK_SEQ, STARRED_YN, COLOR_CODE, INPUT_DATETIME, INPUT_USER
+        ) VALUES (
+             #{userKey}, #{workbookSeq}, #{starredYn}, #{colorCode}, CURRENT_TIMESTAMP, #{userKey}
+        )
+    </insert>
+
+    <insert id="upsertMark" databaseId="postgresql">
+        INSERT INTO wo_user_workbook_mark (
+            USER_KEY, WORKBOOK_SEQ, STARRED_YN, COLOR_CODE, INPUT_DATETIME, INPUT_USER
+        ) VALUES (
+            #{userKey}, #{workbookSeq}, #{starredYn}, #{colorCode}, CURRENT_TIMESTAMP, #{userKey}
+        )
+        ON CONFLICT (USER_KEY, WORKBOOK_SEQ) DO UPDATE SET
+            STARRED_YN   = #{starredYn},
+            COLOR_CODE   = #{colorCode},
+            MOD_DATETIME = CURRENT_TIMESTAMP,
+            MOD_USER      = #{userKey}
+    </insert>
+
+    <select id="selectColorLabels" resultType="weboffice.workbook.ColorLabelRow">
+        SELECT COLOR_CODE, LABEL_NAME
+          FROM wo_user_color_label
+         WHERE USER_KEY = #{userKey}
+    </select>
+
+    <delete id="deleteColorLabel">
+        DELETE FROM wo_user_color_label
+         WHERE USER_KEY = #{userKey}
+           AND COLOR_CODE = #{colorCode}
+    </delete>
+
+    <!-- 기본(H2). -->
+    <insert id="upsertColorLabel">
+        MERGE INTO wo_user_color_label T
+        USING (SELECT CAST(#{userKey} AS VARCHAR) AS USER_KEY,
+                      CAST(#{colorCode} AS VARCHAR) AS COLOR_CODE) S
+           ON (T.USER_KEY = S.USER_KEY AND T.COLOR_CODE = S.COLOR_CODE)
+        WHEN MATCHED THEN UPDATE SET
+             LABEL_NAME   = #{labelName},
+             MOD_DATETIME = CURRENT_TIMESTAMP,
+             MOD_USER      = #{userKey}
+        WHEN NOT MATCHED THEN INSERT (
+             USER_KEY, COLOR_CODE, LABEL_NAME, INPUT_DATETIME, INPUT_USER
+        ) VALUES (
+             #{userKey}, #{colorCode}, #{labelName}, CURRENT_TIMESTAMP, #{userKey}
+        )
+    </insert>
+
+    <insert id="upsertColorLabel" databaseId="postgresql">
+        INSERT INTO wo_user_color_label (
+            USER_KEY, COLOR_CODE, LABEL_NAME, INPUT_DATETIME, INPUT_USER
+        ) VALUES (
+            #{userKey}, #{colorCode}, #{labelName}, CURRENT_TIMESTAMP, #{userKey}
+        )
+        ON CONFLICT (USER_KEY, COLOR_CODE) DO UPDATE SET
+            LABEL_NAME   = #{labelName},
+            MOD_DATETIME = CURRENT_TIMESTAMP,
+            MOD_USER      = #{userKey}
+    </insert>
+
+</mapper>

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="weboffice.sheet.MergeMapper">
+    <insert id="insertMerges">
+        INSERT INTO wo_sheet_merge_line (
+            SHEET_SEQ, FROM_ROW_NO, FROM_COLUMN_NO, TO_ROW_NO, TO_COLUMN_NO,
+            INPUT_DATETIME, INPUT_USER
+        ) VALUES
+        <foreach collection="merges" item="merge" separator=",">
+            (#{sheetSeq}, #{merge.fromRowNo}, #{merge.fromColumnNo},
+             #{merge.toRowNo}, #{merge.toColumnNo}, CURRENT_TIMESTAMP, #{userKey})
+        </foreach>
+    </insert>
+
+    <select id="selectMerges" resultType="weboffice.excel.MergeRangeDto">
+        SELECT FROM_ROW_NO, FROM_COLUMN_NO, TO_ROW_NO, TO_COLUMN_NO
+          FROM wo_sheet_merge_line
+         WHERE SHEET_SEQ = #{sheetSeq}
+           AND DEL_DATETIME IS NULL
+         ORDER BY FROM_ROW_NO, FROM_COLUMN_NO
+    </select>
+
+    <update id="deleteAllMerges">
+        UPDATE wo_sheet_merge_line
+           SET DEL_DATETIME = CURRENT_TIMESTAMP,
+               DEL_USER      = #{userKey}
+         WHERE SHEET_SEQ = #{sheetSeq}
+           AND DEL_DATETIME IS NULL
+    </update>
+
+</mapper>

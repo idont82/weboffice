@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>문서 뷰어 연동 안내 — Web Office</title>
+    <!--
+      docs/외부-시스템-뷰어-연동.md 와 같은 내용이다. 남의 시스템 개발자가 저장소를
+      받지 않고도 읽을 수 있게 화면으로도 둔다 - 연동 문의가 올 때 주소 하나만
+      넘기면 되도록.
+    -->
+    <style>
+      :root { --line: #e3e6e8; --ink: #24292f; --dim: #6b7580; --blue: #1a5fc8; }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; padding: 40px 24px 80px; color: var(--ink);
+        font-family: system-ui, "Malgun Gothic", sans-serif; line-height: 1.65;
+      }
+      main { max-width: 860px; margin: 0 auto; }
+      h1 { font-size: 26px; margin: 0 0 6px; }
+      h2 {
+        font-size: 19px; margin: 44px 0 12px; padding-bottom: 6px;
+        border-bottom: 1px solid var(--line);
+      }
+      h3 { font-size: 15px; margin: 24px 0 8px; }
+      p, li { font-size: 14px; }
+      .lead { color: var(--dim); margin: 0 0 8px; }
+      code {
+        background: #f4f6f8; border-radius: 3px; padding: 1px 5px;
+        font-family: Consolas, monospace; font-size: 13px;
+      }
+      pre {
+        background: #f6f8fa; border: 1px solid var(--line); border-radius: 6px;
+        padding: 14px 16px; overflow-x: auto; font-size: 13px; line-height: 1.5;
+      }
+      pre code { background: none; padding: 0; }
+      table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 13px; }
+      th, td { border: 1px solid var(--line); padding: 7px 10px; text-align: left; vertical-align: top; }
+      th { background: #f6f8fa; font-weight: 600; }
+      .flow {
+        background: #f6f8fa; border: 1px solid var(--line); border-radius: 6px;
+        padding: 16px; font-family: Consolas, monospace; font-size: 13px;
+        white-space: pre; overflow-x: auto; line-height: 1.7;
+      }
+      .note {
+        border-left: 3px solid var(--blue); background: #f2f6fd;
+        padding: 10px 14px; margin: 14px 0; font-size: 14px;
+      }
+      .warn { border-left-color: #b23b3b; background: #fdf3f3; }
+      footer {
+        margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
+        color: var(--dim); font-size: 13px;
+      }
+      td.code-col { font-family: Consolas, monospace; white-space: nowrap; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>문서 뷰어 연동 안내</h1>
+      <p class="lead">
+        다른 시스템이 들고 있는 오피스 문서를 웹에서 <strong>보기만</strong> 하게 해 주는 길이다.
+        파일을 내려받지 않고, 사용자 PC 에 오피스가 없어도 열린다.
+      </p>
+      <ul>
+        <li>대상 형식: <code>xlsx</code> · <code>docx</code> · <code>hwp</code> · <code>hwpx</code> · <code>pptx</code></li>
+        <li>편집·저장·내려받기는 없다. <strong>읽기 전용</strong>이다.</li>
+        <li>문서보안(DRM)이 걸린 문서는 복호화기를 끼운 설치에서만 열린다.</li>
+      </ul>
+
+      <h2>1. 어떻게 도나</h2>
+      <div class="flow">[그쪽 시스템]  ──① 발급 요청(파일 또는 URL)──▶  [Web Office]
+               ◀─② { "viewUrl": "/v/{토큰}" } ──
+
+[사용자]       ──③ 그 주소를 연다 ───────────▶  읽기 전용 화면</div>
+      <p>① 은 <strong>서버끼리</strong> 부른다(사용자 브라우저가 아니라). ③ 만 사람이 연다.</p>
+
+      <h2>2. 발급 요청</h2>
+      <pre><code>POST https://office.example.com/api/view/documents</code></pre>
+      <div class="note">
+        <strong>열쇠는 없다.</strong> 부를 수 있는 <strong>서버 주소(IP)</strong> 로만 가린다.
+        열려 있는 것은 설정(<code>weboffice.view.callers</code>)에 적어 둔
+        대역뿐이다. 다른 곳에서 부르면
+        <code>403 FORBIDDEN_ADDRESS</code> 이고 그 사실이 이력에 남는다.
+        대역을 늘리려면 이 서버를 운영하는 쪽에 부를 서버 주소를 알려 달라.
+      </div>
+
+      <h3>방법 (가) — 파일을 그대로 올린다</h3>
+      <p>우리 서버가 그쪽 파일 서버에 못 닿을 때 쓴다.</p>
+      <pre><code>curl -X POST https://office.example.com/api/view/documents \
+  -H "X-WO-API-KEY: 발급받은열쇠" \
+  -F "file=@보고서.xlsx" \
+  -F "fileName=보고서.xlsx" \
+  -F "viewerName=홍길동 책임"</code></pre>
+
+      <h3>방법 (나) — 파일 주소를 준다</h3>
+      <p>우리 서버가 그 주소로 받아 온다. 호출이 가볍다.</p>
+      <pre><code>curl -X POST https://office.example.com/api/view/documents \
+  -H "X-WO-API-KEY: 발급받은열쇠" \
+  -H "Content-Type: application/json" \
+  -d '{
+        "fileUrl": "https://erp.example.com/files/12345",
+        "fileName": "보고서.xlsx",
+        "viewerName": "홍길동 책임",
+        "systemName": "전자결재",
+        "fetchHeaders": { "Authorization": "Bearer ..." }
+      }'</code></pre>
+      <p><code>fetchHeaders</code> 는 그 주소를 받아 올 때만 쓰고 저장하지 않는다.</p>
+
+      <h3>응답 (둘 다 같다)</h3>
+      <pre><code>{
+  "viewUrl": "/v/26c322a9117a10c794c6f1fab04830dc",
+  "expiresAt": "2026-08-20T14:54:41",
+  "docType": "SHEET",
+  "encrypted": false
+}</code></pre>
+      <table>
+        <tr><th>칸</th><th>뜻</th></tr>
+        <tr><td class="code-col">viewUrl</td><td>사용자에게 넘길 주소. 앞에 우리 도메인을 붙여 쓴다</td></tr>
+        <tr><td class="code-col">expiresAt</td><td>이 주소를 <strong>열 수 있는</strong> 시각까지</td></tr>
+        <tr><td class="code-col">docType</td><td>SHEET(시트) · DOC(문서) · SLIDE(슬라이드)</td></tr>
+        <tr><td class="code-col">encrypted</td><td>DRM 이 걸려 있던 문서인가. true 면 화면에 워터마크가 얹힌다</td></tr>
+      </table>
+
+      <h3>보내는 값</h3>
+      <table>
+        <tr><th>값</th><th>필수</th><th>설명</th></tr>
+        <tr><td class="code-col">fileName</td><td>필수</td><td><strong>확장자로 형식을 가린다.</strong> 없거나 틀리면 415 다</td></tr>
+        <tr><td class="code-col">viewerName</td><td>권장</td><td>이력에 "누가 봤나" 로 적힌다. 사번은 보내지 마라 — 받아도 쓰지 않는다</td></tr>
+        <tr><td class="code-col">systemName</td><td>필수</td><td>부르는 시스템 이름. 이력의 "어느 시스템이 보냈나" 다. 없으면 400</td></tr>
+        <tr><td class="code-col">file / fileUrl</td><td>필수</td><td>둘 중 하나</td></tr>
+      </table>
+
+      <h2>3. 수명은 세 겹이다</h2>
+      <div class="flow">발급 ──(5분 안에 열어야 함)──▶ 열림 ──(그 창에서 8시간)──▶ 닫힘
+                                  └──(문서 데이터는 1시간)──▶ 다시 발급 필요</div>
+      <table>
+        <tr><th>겹</th><th>기본값</th><th>무엇을 재나</th></tr>
+        <tr><td>보기 토큰</td><td><strong>5분</strong></td><td>링크를 <strong>처음 열 수 있는</strong> 시간. 열리는 순간 죽는다</td></tr>
+        <tr><td>창 세션</td><td><strong>8시간</strong></td><td>연 창에서 새로고침·스크롤이 되는 시간</td></tr>
+        <tr><td>문서 데이터</td><td><strong>1시간</strong></td><td>우리가 변환 결과를 들고 있는 시간</td></tr>
+      </table>
+      <p>실제로 볼 수 있는 시간은 <strong>셋 중 가장 짧은 것</strong>이다.</p>
+
+      <div class="note warn">
+        <strong>링크는 먼저 연 브라우저 것이 된다.</strong> 열리는 순간 그 브라우저에 세션이
+        생기고, 같은 주소를 다른 창에서 열면 <code>410</code> 이다. 그러니
+        <strong>사용자마다 따로 발급해라.</strong> 한 번 발급받아 여러 사람에게 돌리면 맨 처음 사람만 본다.
+      </div>
+
+      <div class="note">
+        <strong>원본은 보관하지 않는다.</strong> 1시간이 지나면 변환 결과도 지운다. 사용자가
+        다시 보려 하면 그쪽 시스템이 <strong>다시 발급</strong>하면 된다 — 같은 문서면 대개 0.3초 안에
+        끝난다(잠깐 캐시가 살아 있으면 변환을 건너뛴다).
+      </div>
+
+      <h2>4. 오류</h2>
+      <table>
+        <tr><th>HTTP</th><th>code</th><th>무슨 뜻</th><th>그쪽이 할 일</th></tr>
+        <tr><td>400</td><td class="code-col">MISSING_SYSTEM_NAME</td><td>systemName 을 안 보냄</td><td>시스템 이름을 실어라</td></tr>
+        <tr><td>403</td><td class="code-col">FORBIDDEN_ADDRESS</td><td>허용 안 된 주소에서 부름</td><td>부르는 서버 IP 를 알려 달라</td></tr>
+        <tr><td>401</td><td class="code-col">UNAUTHORIZED</td><td>열쇠를 따로 받은 시스템인데 틀림</td><td>대개는 안 쓴다</td></tr>
+        <tr><td>410</td><td class="code-col">TOKEN_EXPIRED<br />TOKEN_USED</td><td>5분이 지났거나 이미 열린 링크</td><td>다시 발급</td></tr>
+        <tr><td>413</td><td class="code-col">TOO_LARGE</td><td>파일이 한도(기본 50MB)를 넘음</td><td>—</td></tr>
+        <tr><td>415</td><td class="code-col">UNSUPPORTED_TYPE</td><td>우리가 못 여는 형식</td><td>fileName 확장자 확인</td></tr>
+        <tr><td>422</td><td class="code-col">CONVERT_FAILED</td><td>파일이 깨졌거나 읽지 못함</td><td>원본 확인</td></tr>
+        <tr><td>422</td><td class="code-col">DECRYPT_FAILED</td><td>DRM 을 풀지 못함</td><td>문서보안 담당과 확인</td></tr>
+        <tr><td>502</td><td class="code-col">FETCH_FAILED</td><td>fileUrl 에서 못 받아 옴</td><td>주소·인증 헤더·방화벽 확인</td></tr>
+        <tr><td>503</td><td class="code-col">DISABLED</td><td>뷰어를 잠시 꺼 둠</td><td>잠시 뒤 다시</td></tr>
+      </table>
+      <p>응답 본문은 늘 이 모양이다.</p>
+      <pre><code>{ "code": "UNSUPPORTED_TYPE", "message": "볼 수 없는 형식입니다: 사진.png" }</code></pre>
+      <p>사용자가 여는 주소(<code>/v/{토큰}</code>)에서 문제가 나면 코드 대신 <strong>까닭을 적은 안내 화면</strong>이 뜬다.</p>
+
+      <h2>5. 부르는 예시</h2>
+      <h3>Java (Spring RestClient)</h3>
+      <pre><code>public String 보기주소(byte[] 파일, String 파일명, String 열람자) {
+    var 몸통 = new LinkedMultiValueMap&lt;String, Object&gt;();
+    몸통.add("file", new ByteArrayResource(파일) {
+        @Override public String getFilename() { return 파일명; }
+    });
+    몸통.add("fileName", 파일명);
+    몸통.add("viewerName", 열람자);
+    몸통.add("systemName", "전자결재");
+
+    Map&lt;String, Object&gt; 응답 = restClient.post()
+            .uri("https://office.example.com/api/view/documents")
+            .contentType(MediaType.MULTIPART_FORM_DATA)
+            .body(몸통)
+            .retrieve()
+            .body(Map.class);
+
+    return "https://office.example.com" + 응답.get("viewUrl");
+}</code></pre>
+
+      <h3>JavaScript (Node)</h3>
+      <pre><code>const 응답 = await fetch('https://office.example.com/api/view/documents', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    fileUrl: 'https://erp.example.com/files/12345',
+    fileName: '보고서.xlsx',
+    viewerName: '홍길동 책임',
+    systemName: '전자결재',
+  }),
+});
+const { viewUrl } = await 응답.json();
+window.open('https://office.example.com' + viewUrl);</code></pre>
+
+      <div class="note warn">
+        <strong>발급은 서버에서 불러라.</strong> 허용된 대역은 적어 둔 서버와 개발자 PC 다 —
+        사용자 브라우저에서 직접 부르면 그 사람 주소로 나가 막힌다.
+      </div>
+
+      <h2>6. 붙이기 전에</h2>
+      <ol>
+        <li><strong>부를 서버 주소를 알려 줘라.</strong> 이 서버를 운영하는 쪽에 시스템
+          이름과 그 서버 IP 를 주면 대역에 넣는다. 열려 있는 것은 설정
+          (<code>weboffice.view.callers</code>)에 적어 둔 대역뿐이다.</li>
+        <li><strong>URL 방식을 쓸 거면</strong> 우리 서버가 그 주소에 닿는지 미리 확인해라(방화벽).</li>
+        <li><strong>시스템 이름과 열람자 이름을 보내라.</strong> 이력에 남아야 "어느 시스템이 ·
+          누구에게 보여 줬나" 를 나중에 답할 수 있다. 시스템 이름은 필수다.</li>
+        <li><strong>사용자마다 발급해라.</strong> 링크 하나를 여럿에게 돌리면 맨 처음 사람만 본다.</li>
+      </ol>
+
+      <h2>7. 안 되는 것</h2>
+      <ul>
+        <li>편집·저장·주석 — 읽기 전용이다.</li>
+        <li>내려받기·인쇄 전용 화면 — 없다.</li>
+        <li>링크 재사용 — 한 번 열리면 그 창의 것이다.</li>
+        <li>화면 촬영 막기 — DRM 문서의 워터마크는 <strong>억제</strong>이지 차단이 아니다.</li>
+      </ul>
+
+      <h2>8. 이력은 어디서 보나</h2>
+      <p>
+        관리자 화면 <code>/admin/views</code> — 누가 · 언제 · 어느 문서를 봤는지, 무엇이
+        실패했는지, 하루 몇 건인지 본다. <strong>관리자로 지정된 계정로 등록된 사람만</strong> 들어간다.
+      </p>
+
+      <footer>이 안내는 저장소의 <code>docs/외부-시스템-뷰어-연동.md</code> 와 같은 내용이다.</footer>
+    </main>
+  </body>
+</html>

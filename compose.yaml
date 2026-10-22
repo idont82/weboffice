@@ -1,0 +1,71 @@
+# 한 줄로 띄운다.
+#
+#   docker compose up
+#
+# 다 뜨면 http://localhost:8710 이다. 로그인 화면은 없다 - 들어오는 사람마다
+# 손님 신원을 받는다(weboffice.auth.mode: open). 아무나 문서를 만들고 공유할
+# 수 있으므로 신뢰된 망에서만 쓸 것.
+#
+# 처음 뜰 때 DB 가 비어 있으면 db/schema-postgresql.sql 이 한 번 돈다. 두 번째
+# 부터는 자료가 남아 있어 돌지 않는다 - 스키마에 DROP 이 들어 있으니 그래야 한다.
+# 처음부터 다시 하려면: docker compose down -v
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${WO_DB_NAME:-weboffice}
+      POSTGRES_USER: ${WO_DB_USER:-weboffice}
+      # 밖으로 열지 않는 컨테이너 사이의 암호다. 바깥에 포트를 내거나 운영에
+      # 쓸 때는 .env 에 WO_DB_PASSWORD 를 적어 바꾼다.
+      POSTGRES_PASSWORD: ${WO_DB_PASSWORD:-weboffice}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+      # 이름 끝의 :ro 가 중요하다. 초기화 스크립트가 쓰기 가능하면 컨테이너가
+      # 저장소의 스키마 파일을 고칠 수 있다.
+      - ./db/schema-postgresql.sql:/docker-entrypoint-initdb.d/10-schema.sql:ro
+    # 앱이 DB 보다 먼저 떠서 "연결 거부" 로 죽지 않게 한다. 포트가 열렸는지가
+    # 아니라 질의를 받는지를 본다 - postgres 는 초기화 중에 포트를 먼저 연다.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${WO_DB_USER:-weboffice} -d ${WO_DB_NAME:-weboffice}"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+    restart: unless-stopped
+
+  app:
+    build: .
+    ports:
+      - "${WO_PORT:-8710}:8710"
+    volumes:
+      # 서블릿 세션을 파일로 남긴다. 컨테이너를 갈아도 로그인·손님 신원이
+      # 끊기지 않는다 - 없으면 이미지를 새로 올릴 때마다 모두 쫓겨난다.
+      - app-sessions:/app/data/sessions
+    environment:
+      WO_DB_HOST: db
+      WO_DB_PORT: "5432"
+      WO_DB_NAME: ${WO_DB_NAME:-weboffice}
+      WO_DB_USER: ${WO_DB_USER:-weboffice}
+      WO_DB_PASSWORD: ${WO_DB_PASSWORD:-weboffice}
+      # open 이면 로그인 없이 쓴다. registered 로 바꾸면 관리자가 등록한
+      # 이메일만 들어온다 - 그때는 WO_ADMIN_EMAIL 도 함께 준다.
+      WO_AUTH_MODE: ${WO_AUTH_MODE:-open}
+      WO_ADMIN_EMAIL: ${WO_ADMIN_EMAIL:-}
+      # WebSocket 손떼기를 허용할 origin. 다른 주소로 서비스하면 여기에 적는다 -
+      # '*' 를 쓰면 어느 사이트에서든 사용자의 세션 쿠키로 연결을 열 수 있다.
+      WO_WS_ORIGINS: ${WO_WS_ORIGINS:-http://localhost:*,http://127.0.0.1:*}
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8710/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+    restart: unless-stopped
+
+volumes:
+  db-data:
+  app-sessions:

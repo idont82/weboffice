@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="weboffice.doc.DocChangeLogMapper">
+
+    <!--
+      글 문서 문단 이력. 셀 이력(ChangeLog.xml)과 같은 얼개고, 벤더 분기도 같은
+      까닭이다 - 다중 행 INSERT 문법과 jsonb 캐스팅.
+    -->
+
+    <!-- 기본(H2). ORG_VALUE/MOD_VALUE 가 CLOB 이라 문자열을 그대로 넣는다. -->
+    <insert id="insertLogs">
+        INSERT INTO wo_doc_change_log (
+            WORKBOOK_SEQ, PARAGRAPH_NO, CHANGE_TYPE, ORG_VALUE, MOD_VALUE,
+            INPUT_DATETIME, INPUT_USER
+        ) VALUES
+        <foreach collection="logs" item="log" separator=",">
+            (#{log.workbookSeq}, #{log.paragraphNo}, #{log.changeType},
+             #{log.orgValue}, #{log.modValue}, CURRENT_TIMESTAMP, #{userKey})
+        </foreach>
+    </insert>
+
+    <insert id="insertLogs" databaseId="postgresql">
+        INSERT INTO wo_doc_change_log (
+            WORKBOOK_SEQ, PARAGRAPH_NO, CHANGE_TYPE, ORG_VALUE, MOD_VALUE,
+            INPUT_DATETIME, INPUT_USER
+        ) VALUES
+        <foreach collection="logs" item="log" separator=",">
+            (#{log.workbookSeq}, #{log.paragraphNo}, #{log.changeType},
+             CAST(#{log.orgValue} AS jsonb), CAST(#{log.modValue} AS jsonb),
+             CURRENT_TIMESTAMP, #{userKey})
+        </foreach>
+    </insert>
+    <select id="selectLogHeads" resultType="weboffice.sheet.LogHeadRow">
+        SELECT LOG_SEQ, INPUT_DATETIME AS CHANGED_AT, INPUT_USER AS CHANGED_USER
+          FROM wo_doc_change_log
+         WHERE WORKBOOK_SEQ = #{workbookSeq}
+           AND DEL_DATETIME IS NULL
+         ORDER BY LOG_SEQ DESC
+         FETCH FIRST #{limit} ROWS ONLY
+    </select>
+
+    <select id="selectLogsBetween"
+            resultType="weboffice.doc.DocVersionChangeRow">
+        SELECT PARAGRAPH_NO, ORG_VALUE, MOD_VALUE,
+               INPUT_DATETIME AS CHANGED_AT, INPUT_USER AS CHANGED_USER
+          FROM wo_doc_change_log
+         WHERE WORKBOOK_SEQ = #{workbookSeq}
+           AND INPUT_DATETIME >= #{fromAt}
+           AND INPUT_DATETIME <![CDATA[<=]]> #{toAt}
+           AND DEL_DATETIME IS NULL
+         ORDER BY LOG_SEQ DESC
+         FETCH FIRST #{limit} ROWS ONLY
+    </select>
+
+    <!-- 되돌리기가 읽는다. 오래된 것이 앞이라 같은 문단은 첫 줄이 그때 값이다. -->
+    <select id="selectLogsAfter" resultType="weboffice.doc.DocLogValueRow">
+        SELECT PARAGRAPH_NO, ORG_VALUE
+          FROM wo_doc_change_log
+         WHERE WORKBOOK_SEQ = #{workbookSeq}
+           AND INPUT_DATETIME > #{afterAt}
+           AND DEL_DATETIME IS NULL
+         ORDER BY LOG_SEQ ASC
+    </select>
+
+</mapper>

@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>비밀번호 정하기 — Web Office</title>
+    <style>
+      body {
+        margin: 0; min-height: 100vh; display: flex; align-items: center;
+        justify-content: center; background: #f5f7fa;
+        font-family: system-ui, sans-serif; color: #333; padding: 24px;
+      }
+      .panel {
+        width: 100%; max-width: 360px; background: #fff; border-radius: 10px;
+        border: 1px solid #e3e8ee; padding: 28px; box-sizing: border-box;
+      }
+      h1 { font-size: 18px; margin: 0 0 6px; }
+      .note { color: #888; font-size: 13px; margin: 0 0 20px; line-height: 1.5; }
+      label { display: block; font-size: 13px; margin-bottom: 14px; }
+      input {
+        display: block; width: 100%; box-sizing: border-box; margin-top: 5px;
+        font: inherit; padding: 8px 10px; border: 1px solid #d0d5da; border-radius: 5px;
+      }
+      button {
+        width: 100%; font: inherit; padding: 9px; border: 0; border-radius: 5px;
+        background: #1a5fc8; color: #fff; cursor: pointer;
+      }
+      button:disabled { opacity: .5; cursor: default; }
+      #message { font-size: 13px; margin: 14px 0 0; min-height: 18px; }
+      #message.bad { color: #c0392b; }
+      #message.good { color: #1e7e46; }
+    </style>
+  </head>
+  <body>
+    <section class="panel">
+      <h1>비밀번호 정하기</h1>
+      <p class="note">
+        이 링크는 한 번만 쓸 수 있다. 비밀번호는 여기서 정하는 것이 그대로 쓰이고,
+        관리자는 볼 수 없다.
+      </p>
+      <form id="inviteForm">
+        <label>새 비밀번호 (8자 이상)
+          <input name="password" type="password" autocomplete="new-password"
+                 minlength="8" autofocus required>
+        </label>
+        <label>한 번 더
+          <input name="again" type="password" autocomplete="new-password"
+                 minlength="8" required>
+        </label>
+        <button type="submit">정하고 들어가기</button>
+        <p id="message" role="alert"></p>
+      </form>
+    </section>
+
+    <script>
+      // 비밀번호는 POST 본문으로만 보낸다. URL 에 실으면 접속 기록·브라우저
+      // 이력·중간 서버 로그에 남는다.
+      const form = document.getElementById('inviteForm');
+      const message = document.getElementById('message');
+      const token = new URLSearchParams(location.search).get('token') || '';
+
+      function say(word, good) {
+        message.textContent = word;
+        message.className = good ? 'good' : 'bad';
+      }
+
+      if (token === '') {
+        say('초대 링크가 올바르지 않습니다. 관리자에게 다시 받아 주세요.', false);
+        form.querySelector('button').disabled = true;
+      }
+
+      form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const data = new FormData(form);
+        const password = String(data.get('password') || '');
+        if (password !== String(data.get('again') || '')) {
+          say('두 번 적은 비밀번호가 다릅니다.', false);
+          return;
+        }
+        // 눈에 보이는 글자로 센다. 한글 여덟 자는 여덟 자다.
+        if ([...password].length < 8) {
+          say('비밀번호는 8자 이상이어야 합니다.', false);
+          return;
+        }
+
+        const button = form.querySelector('button');
+        button.disabled = true;
+        say('', true);
+        try {
+          const response = await fetch('/api/invite/accept', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token, password }),
+          });
+          if (!response.ok) {
+            const body = await response.json().catch(() => ({}));
+            say(body.message || '비밀번호를 정하지 못했습니다.', false);
+            button.disabled = false;
+            return;
+          }
+          location.href = '/';
+        } catch {
+          say('서버에 닿지 못했습니다.', false);
+          button.disabled = false;
+        }
+      });
+    </script>
+  </body>
+</html>

@@ -1,0 +1,141 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="weboffice.workbook.WorkbookPurgeMapper">
+
+    <!--
+      휴지통 비우기. 여기서는 <b>정말</b> 지운다 - 표시만 하는 것이 아니라 행을 없앤다.
+      비우기를 눌렀는데 자리가 그대로면 비운 것이 아니다.
+
+      문서를 하나씩 지우지 않고 <b>묶어서</b> 지운다. 하나씩 돌면 문서마다 표 열일곱
+      개를 두드려, 사백 건이면 왕복이 팔천 번이다(2026-09-03 지적: 오래 걸린다).
+      묶으면 표마다 한 번, 모두 열일곱 번으로 끝난다.
+
+      지우는 차례는 참조의 역순이다. 어긋나면 참조 무결성 위반으로 막히는데, 그
+      실패는 무엇이 문제인지 알아보기 어렵다.
+    -->
+
+    <!--
+      비울 문서. 지운 지 오래된 것만 고른다.
+
+      deletedBefore 가 없으면(전부 비우기) 버린 때를 아예 안 본다. 경계를 "지금" 으로
+      잡으면 방금 버린 문서가 간발의 차로 빠진다 - 자바의 "지금" 과 DB 가 찍은 시각은
+      눈금이 달라, 셋에 한 번꼴로 한 건이 남았다(2026-10-14 실측).
+
+      경계는 포함한다(&lt;=). 날 수로 자를 때도 딱 그 순간에 버린 문서를 빠뜨리지 않는다.
+    -->
+    <select id="selectPurgeTargets" resultType="java.lang.Long">
+        SELECT WORKBOOK_SEQ
+          FROM wo_workbook_master
+         WHERE OWNER_USER = #{userKey}
+           AND DEL_DATETIME IS NOT NULL
+        <if test="deletedBefore != null">
+           AND DEL_DATETIME &lt;= #{deletedBefore}
+        </if>
+    </select>
+
+    <!-- 묶어 넣을 문서 번호. 모든 지우기가 이것을 쓴다. -->
+    <sql id="theseWorkbooks">
+        <foreach item="seq" collection="workbookSeqs" open="(" separator="," close=")">
+            #{seq}
+        </foreach>
+    </sql>
+
+    <!-- 그 문서들의 시트. 시트를 가리키는 표가 이것으로 걸러 낸다. -->
+    <sql id="theirSheets">
+        SELECT SHEET_SEQ FROM wo_workbook_sheet_line
+         WHERE WORKBOOK_SEQ IN <include refid="theseWorkbooks"/>
+    </sql>
+
+    <delete id="deleteUserSheetViews">
+        DELETE FROM wo_user_sheet_view
+         WHERE WORKBOOK_SEQ IN <include refid="theseWorkbooks"/>
+    </delete>
+
+    <delete id="deleteDrawings">
+        DELETE FROM wo_sheet_drawing_line
+         WHERE SHEET_SEQ IN (<include refid="theirSheets"/>)
+    </delete>
+
+    <delete id="deleteImages">
+        DELETE FROM wo_sheet_image_master
+         WHERE WORKBOOK_SEQ IN <include refid="theseWorkbooks"/>
+    </delete>
+
+    <delete id="deleteCellLogs">
+        DELETE FROM wo_cell_change_log
+         WHERE SHEET_SEQ IN (<include refid="theirSheets"/>)
+    </delete>
+
+    <delete id="deleteDocLogs">
+        DELETE FROM wo_doc_change_log
+         WHERE WORKBOOK_SEQ IN <include refid="theseWorkbooks"/>
+    </delete>
+
+    <delete id="deleteLocks">
+        DELETE FROM wo_sheet_lock_line
+         WHERE SHEET_SEQ IN (<include refid="theirSheets"/>)
+    </delete>
+
+    <delete id="deleteSizes">
+        DELETE FROM wo_sheet_size_line
+         WHERE SHEET_SEQ IN (<include refid="theirSheets"/>)
+    </delete>
+
+    <delete id="deleteMerges">
+        DELETE FROM wo_sheet_merge_line
+         WHERE SHEET_SEQ IN (<include refid="theirSheets"/>)
+    </delete>
+
+    <delete id="deleteCells">
+        DELETE FROM wo_sheet_cell_line
+         WHERE SHEET_SEQ IN (<include refid="theirSheets"/>)
+    </delete>
+
+    <delete id="deleteStyles">
+        DELETE FROM wo_cell_style_master
+         WHERE WORKBOOK_SEQ IN <include refid="theseWorkbooks"/>
+    </delete>
+
+    <delete id="deleteSheets">
+        DELETE FROM wo_workbook_sheet_line
+         WHERE WORKBOOK_SEQ IN <include refid="theseWorkbooks"/>
+    </delete>
+
+    <delete id="deleteParagraphs">
+        DELETE FROM wo_doc_paragraph_line
+         WHERE WORKBOOK_SEQ IN <include refid="theseWorkbooks"/>
+    </delete>
+
+    <delete id="deleteResources">
+        DELETE FROM wo_workbook_resource_line
+         WHERE WORKBOOK_SEQ IN <include refid="theseWorkbooks"/>
+    </delete>
+
+    <delete id="deleteMembers">
+        DELETE FROM wo_workbook_member_map
+         WHERE WORKBOOK_SEQ IN <include refid="theseWorkbooks"/>
+    </delete>
+
+    <delete id="deleteSnapshots">
+        DELETE FROM wo_workbook_snapshot
+         WHERE WORKBOOK_SEQ IN <include refid="theseWorkbooks"/>
+    </delete>
+
+    <!-- 별표·색 딱지는 사람 것이라 FK 가 없다. 남겨 두면 없는 문서를 가리킨다. -->
+    <delete id="deleteMarks">
+        DELETE FROM wo_user_workbook_mark
+         WHERE WORKBOOK_SEQ IN <include refid="theseWorkbooks"/>
+    </delete>
+
+    <!--
+      마지막으로 문서. 주인과 "지운 것" 임을 다시 확인한다 - 비우는 사이에 누가
+      되살렸다면 지우지 않는다.
+    -->
+    <delete id="deleteWorkbooks">
+        DELETE FROM wo_workbook_master
+         WHERE WORKBOOK_SEQ IN <include refid="theseWorkbooks"/>
+           AND OWNER_USER = #{userKey}
+           AND DEL_DATETIME IS NOT NULL
+    </delete>
+</mapper>

@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="weboffice.sheet.SheetViewMapper">
+
+    <!--
+      최근에 본 것이 앞에 온다. 문서를 다시 열 때 첫 줄의 시트로 연다.
+      사번은 뽑지 않는다 - 브라우저로 나가는 값이다.
+    -->
+    <select id="selectViews" resultType="weboffice.sheet.SheetViewDto">
+        SELECT SHEET_SEQ, ZOOM_RATIO
+          FROM wo_user_sheet_view
+         WHERE USER_KEY = #{userKey}
+           AND WORKBOOK_SEQ = #{workbookSeq}
+         ORDER BY SEEN_DATETIME DESC, SHEET_SEQ
+    </select>
+
+    <!-- 기본(H2). 지운 적이 없는 표라 되살리기가 없다. -->
+    <insert id="upsertView">
+        MERGE INTO wo_user_sheet_view T
+        USING (SELECT CAST(#{userKey} AS VARCHAR) AS USER_KEY,
+                      CAST(#{workbookSeq} AS BIGINT) AS WORKBOOK_SEQ,
+                      CAST(#{sheetSeq} AS BIGINT) AS SHEET_SEQ) S
+           ON (T.USER_KEY = S.USER_KEY
+           AND T.WORKBOOK_SEQ = S.WORKBOOK_SEQ
+           AND T.SHEET_SEQ = S.SHEET_SEQ)
+        WHEN MATCHED THEN UPDATE SET
+             ZOOM_RATIO    = COALESCE(CAST(#{zoomRatio} AS DECIMAL(4,2)), T.ZOOM_RATIO),
+             SEEN_DATETIME = CURRENT_TIMESTAMP
+        WHEN NOT MATCHED THEN INSERT (
+             USER_KEY, WORKBOOK_SEQ, SHEET_SEQ, ZOOM_RATIO, SEEN_DATETIME
+        ) VALUES (
+             #{userKey}, #{workbookSeq}, #{sheetSeq}, COALESCE(CAST(#{zoomRatio} AS DECIMAL(4,2)), 1.0),
+             CURRENT_TIMESTAMP
+        )
+    </insert>
+
+    <insert id="upsertView" databaseId="postgresql">
+        INSERT INTO wo_user_sheet_view (
+            USER_KEY, WORKBOOK_SEQ, SHEET_SEQ, ZOOM_RATIO, SEEN_DATETIME
+        ) VALUES (
+            #{userKey}, #{workbookSeq}, #{sheetSeq}, COALESCE(CAST(#{zoomRatio} AS DECIMAL(4,2)), 1.0),
+            CURRENT_TIMESTAMP
+        )
+        ON CONFLICT (USER_KEY, WORKBOOK_SEQ, SHEET_SEQ) DO UPDATE SET
+            ZOOM_RATIO    = COALESCE(CAST(#{zoomRatio} AS DECIMAL(4,2)), wo_user_sheet_view.ZOOM_RATIO),
+            SEEN_DATETIME = CURRENT_TIMESTAMP
+    </insert>
+
+</mapper>

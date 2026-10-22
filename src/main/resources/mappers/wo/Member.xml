@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="weboffice.workbook.MemberMapper">
+
+    <select id="selectRole" resultType="java.lang.String">
+        SELECT ROLE_CODE
+          FROM wo_workbook_member_map
+         WHERE WORKBOOK_SEQ = #{workbookSeq}
+           AND MEMBER_USER   = #{memberUser}
+           AND USE_YN       = 'Y'
+           AND DEL_DATETIME IS NULL
+    </select>
+
+    <insert id="insertMember">
+        INSERT INTO wo_workbook_member_map (
+            WORKBOOK_SEQ, MEMBER_USER, ROLE_CODE, USE_YN, INPUT_DATETIME, INPUT_USER
+        ) VALUES (
+            #{workbookSeq}, #{memberUser}, #{roleCode}, 'Y', CURRENT_TIMESTAMP, #{userKey}
+        )
+    </insert>
+
+    <select id="selectMembers" resultType="weboffice.workbook.MemberRow">
+        SELECT MEMBER_USER, ROLE_CODE
+          FROM wo_workbook_member_map
+         WHERE WORKBOOK_SEQ = #{workbookSeq}
+           AND USE_YN = 'Y'
+           AND DEL_DATETIME IS NULL
+         ORDER BY MEMBER_USER
+    </select>
+
+    <update id="softDeleteMember">
+        UPDATE wo_workbook_member_map
+           SET DEL_DATETIME = CURRENT_TIMESTAMP,
+               DEL_USER      = #{userKey}
+         WHERE WORKBOOK_SEQ = #{workbookSeq}
+           AND MEMBER_USER   = #{memberUser}
+           AND DEL_DATETIME IS NULL
+    </update>
+
+    <!--
+      업서트 세 구문 모두 같은 결과를 내야 한다.
+        - 있으면 역할 변경(MOD_*), 없으면 추가(INPUT_*)
+        - 소프트삭제된 행은 DEL_DATETIME 을 NULL 로 되돌려 되살린다
+
+      마지막을 빠뜨리면 뺐다가 다시 넣은 사람이 조회에서 사라진다.
+      Cell.xml·Drawing.xml 과 같은 구조다.
+    -->
+
+    <!-- 기본(H2). MODE=PostgreSQL 이어도 H2 는 ON CONFLICT 를 지원하지 않는다. -->
+    <insert id="upsertMember">
+        MERGE INTO wo_workbook_member_map T
+        USING (SELECT CAST(#{workbookSeq} AS BIGINT) AS WORKBOOK_SEQ,
+                      CAST(#{memberUser} AS VARCHAR) AS MEMBER_USER) S
+           ON (T.WORKBOOK_SEQ = S.WORKBOOK_SEQ AND T.MEMBER_USER = S.MEMBER_USER)
+        WHEN MATCHED THEN UPDATE SET
+             ROLE_CODE    = #{roleCode},
+             USE_YN       = 'Y',
+             MOD_DATETIME = CURRENT_TIMESTAMP,
+             MOD_USER      = #{userKey},
+             DEL_DATETIME = NULL,
+             DEL_USER      = NULL
+        WHEN NOT MATCHED THEN INSERT (
+             WORKBOOK_SEQ, MEMBER_USER, ROLE_CODE, USE_YN, INPUT_DATETIME, INPUT_USER
+        ) VALUES (
+             #{workbookSeq}, #{memberUser}, #{roleCode}, 'Y', CURRENT_TIMESTAMP, #{userKey}
+        )
+    </insert>
+
+    <insert id="upsertMember" databaseId="postgresql">
+        INSERT INTO wo_workbook_member_map (
+            WORKBOOK_SEQ, MEMBER_USER, ROLE_CODE, USE_YN, INPUT_DATETIME, INPUT_USER
+        ) VALUES (
+            #{workbookSeq}, #{memberUser}, #{roleCode}, 'Y', CURRENT_TIMESTAMP, #{userKey}
+        )
+        ON CONFLICT (WORKBOOK_SEQ, MEMBER_USER) DO UPDATE SET
+            ROLE_CODE    = EXCLUDED.ROLE_CODE,
+            USE_YN       = 'Y',
+            MOD_DATETIME = CURRENT_TIMESTAMP,
+            MOD_USER      = #{userKey},
+            DEL_DATETIME = NULL,
+            DEL_USER      = NULL
+    </insert>
+</mapper>

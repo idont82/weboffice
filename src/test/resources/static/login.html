@@ -1,0 +1,15 @@
+<!--
+  진짜 로그인 화면은 frontend/public/login.html 이고, vite 가 prepare-package 에서
+  target/classes/static 으로 복사한다. surefire 의 test 단계는 그 앞이라 clean 빌드에서는
+  파일이 없다 - 젠킨스 첫 빌드가 /login.html 404 로 죽었다(2026-08-13 실측).
+  로컬은 이전 빌드 잔재가 남아 있어 가려져 있었다.
+
+  확인 대상은 화면 내용이 아니라 "인터셉터가 이 경로를 로그인으로 돌리지 않는다"(SsoInterceptorTest)
+  와 "html 에 no-store 가 붙는다"(StaticCacheTest) 다. 둘 다 파일이 있기만 하면 된다.
+  같은 이유로 static/assets/probe-abc123.js 가 있다.
+-->
+<!doctype html>
+<html lang="ko">
+<head><meta charset="utf-8"><title>로그인 자리표시</title></head>
+<body></body>
+</html>

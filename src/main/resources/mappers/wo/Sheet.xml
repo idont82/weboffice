@@ -1,0 +1,140 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="weboffice.sheet.SheetMapper">
+
+    <sql id="sheetColumns">
+        SHEET_SEQ, WORKBOOK_SEQ, SHEET_NAME, SHEET_NO, MAX_ROW_NO, MAX_COLUMN_NO,
+        <!--
+            Y/N 을 화면이 다루기 좋게 참/거짓으로 바꿔 준다. 0/1 로 내는 이유는
+            오라클에 불리언 리터럴이 없기 때문이다 - 세 DB 가 모두 이해한다.
+        -->
+        CASE WHEN GRIDLINE_YN = 'N' THEN 0 ELSE 1 END AS SHOW_GRIDLINES,
+        FREEZE_ROW_NO, FREEZE_COLUMN_NO, TAB_COLOR, FILTER_RANGE
+    </sql>
+
+    <insert id="insertSheet" useGeneratedKeys="true"
+            keyProperty="sheet.sheetSeq" keyColumn="SHEET_SEQ">
+        INSERT INTO wo_workbook_sheet_line (
+            WORKBOOK_SEQ, SHEET_NAME, SHEET_NO, MAX_ROW_NO, MAX_COLUMN_NO,
+            INPUT_DATETIME, INPUT_USER
+        ) VALUES (
+            #{sheet.workbookSeq}, #{sheet.sheetName}, #{sheet.sheetNo},
+            #{sheet.maxRowNo}, #{sheet.maxColumnNo},
+            CURRENT_TIMESTAMP, #{userKey}
+        )
+    </insert>
+
+    <select id="selectSheetsByWorkbook"
+            resultType="weboffice.sheet.SheetSummaryDto">
+        SELECT <include refid="sheetColumns"/>
+          FROM wo_workbook_sheet_line
+         WHERE WORKBOOK_SEQ = #{workbookSeq}
+           AND DEL_DATETIME IS NULL
+         ORDER BY SHEET_NO
+    </select>
+
+    <select id="selectSheet" resultType="weboffice.sheet.SheetSummaryDto">
+        SELECT <include refid="sheetColumns"/>
+          FROM wo_workbook_sheet_line
+         WHERE SHEET_SEQ = #{sheetSeq}
+           AND DEL_DATETIME IS NULL
+    </select>
+
+    <update id="updateFreeze">
+        UPDATE wo_workbook_sheet_line
+           SET FREEZE_ROW_NO    = #{freezeRowNo},
+               FREEZE_COLUMN_NO = #{freezeColumnNo},
+               MOD_DATETIME     = CURRENT_TIMESTAMP,
+               MOD_USER          = #{userKey}
+         WHERE SHEET_SEQ = #{sheetSeq}
+           AND DEL_DATETIME IS NULL
+    </update>
+
+    <update id="updateFilterRange">
+        UPDATE wo_workbook_sheet_line
+           SET FILTER_RANGE = #{filterRange},
+               MOD_DATETIME = CURRENT_TIMESTAMP,
+               MOD_USER      = #{userKey}
+         WHERE SHEET_SEQ = #{sheetSeq}
+           AND DEL_DATETIME IS NULL
+    </update>
+
+    <update id="updateTabColor">
+        UPDATE wo_workbook_sheet_line
+           SET TAB_COLOR    = #{tabColor},
+               MOD_DATETIME = CURRENT_TIMESTAMP,
+               MOD_USER      = #{userKey}
+         WHERE SHEET_SEQ = #{sheetSeq}
+           AND DEL_DATETIME IS NULL
+    </update>
+
+    <update id="updateGridline">
+        UPDATE wo_workbook_sheet_line
+           SET GRIDLINE_YN  = #{gridlineYn},
+               MOD_DATETIME = CURRENT_TIMESTAMP,
+               MOD_USER      = #{userKey}
+         WHERE SHEET_SEQ = #{sheetSeq}
+           AND DEL_DATETIME IS NULL
+    </update>
+
+    <update id="updateSheetName">
+        UPDATE wo_workbook_sheet_line
+           SET SHEET_NAME   = #{sheetName},
+               MOD_DATETIME = CURRENT_TIMESTAMP,
+               MOD_USER      = #{userKey}
+         WHERE SHEET_SEQ = #{sheetSeq}
+           AND DEL_DATETIME IS NULL
+    </update>
+
+    <!--
+        지우기는 소프트 삭제다. 시트 하나에 셀이 수만 개인데 그것까지 지우면
+        되돌릴 방법이 없다 - 시트만 감추고 셀은 그대로 둔다.
+    -->
+    <update id="updateSheetNo">
+        UPDATE wo_workbook_sheet_line
+           SET SHEET_NO     = #{sheetNo},
+               MOD_DATETIME = CURRENT_TIMESTAMP,
+               MOD_USER      = #{userKey}
+         WHERE SHEET_SEQ = #{sheetSeq}
+           AND DEL_DATETIME IS NULL
+    </update>
+
+    <update id="softDeleteSheet">
+        UPDATE wo_workbook_sheet_line
+           SET DEL_DATETIME = CURRENT_TIMESTAMP,
+               DEL_USER      = #{userKey}
+         WHERE SHEET_SEQ = #{sheetSeq}
+           AND DEL_DATETIME IS NULL
+    </update>
+
+    <!-- 지운 것만. 복구 지점으로 되돌릴 때 되살릴 자리를 찾는다. -->
+    <select id="selectDeletedSheetsByWorkbook"
+            resultType="weboffice.sheet.SheetSummaryDto">
+        SELECT <include refid="sheetColumns"/>
+          FROM wo_workbook_sheet_line
+         WHERE WORKBOOK_SEQ = #{workbookSeq}
+           AND DEL_DATETIME IS NOT NULL
+         ORDER BY SHEET_NO
+    </select>
+
+    <update id="reviveSheet">
+        UPDATE wo_workbook_sheet_line
+           SET DEL_DATETIME = NULL,
+               DEL_USER      = NULL,
+               MOD_DATETIME = CURRENT_TIMESTAMP,
+               MOD_USER      = #{userKey}
+         WHERE SHEET_SEQ = #{sheetSeq}
+    </update>
+
+    <update id="updateSheetBounds">
+        UPDATE wo_workbook_sheet_line
+           SET MAX_ROW_NO    = #{maxRowNo},
+               MAX_COLUMN_NO = #{maxColumnNo},
+               MOD_DATETIME  = CURRENT_TIMESTAMP,
+               MOD_USER       = #{userKey}
+         WHERE SHEET_SEQ = #{sheetSeq}
+           AND DEL_DATETIME IS NULL
+    </update>
+
+</mapper>

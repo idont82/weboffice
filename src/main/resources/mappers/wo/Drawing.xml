@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="weboffice.drawing.DrawingMapper">
+
+    <select id="selectDrawings" resultType="weboffice.drawing.DrawingDto">
+        SELECT DRAWING_ID, IMAGE_SEQ,
+               FROM_ROW_NO, FROM_ROW_OFFSET, FROM_COLUMN_NO, FROM_COLUMN_OFFSET,
+               TO_ROW_NO, TO_ROW_OFFSET, TO_COLUMN_NO, TO_COLUMN_OFFSET,
+               ANCHOR_TYPE, Z_ORDER, DRAWING_EXTRA
+          FROM wo_sheet_drawing_line
+         WHERE SHEET_SEQ = #{sheetSeq}
+           AND DEL_DATETIME IS NULL
+         ORDER BY Z_ORDER, DRAWING_ID
+    </select>
+
+    <update id="softDeleteDrawings">
+        UPDATE wo_sheet_drawing_line
+           SET DEL_DATETIME = CURRENT_TIMESTAMP,
+               DEL_USER      = #{userKey}
+         WHERE SHEET_SEQ = #{sheetSeq}
+           AND DEL_DATETIME IS NULL
+           AND DRAWING_ID IN
+        <foreach collection="drawingIds" item="drawingId" open="(" close=")" separator=",">
+               #{drawingId}
+        </foreach>
+    </update>
+
+    <!--
+      업서트 세 구문 모두 같은 결과를 내야 한다.
+        - 있으면 갱신(MOD_*), 없으면 삽입(INPUT_*)
+        - 소프트삭제된 행은 DEL_DATETIME 을 NULL 로 되돌려 되살린다
+
+      마지막 항목을 빠뜨리면 지웠던 자리에 다시 그림을 넣을 때 조회에서 사라진다.
+      DrawingMapperTest 가 셋 다 그 단정을 건다. Cell.xml 과 같은 구조다.
+    -->
+
+    <!-- 기본(H2). MODE=PostgreSQL 이어도 H2 는 ON CONFLICT 를 지원하지 않는다. -->
+    <insert id="upsertDrawings">
+        <foreach collection="drawings" item="d" separator=";">
+            MERGE INTO wo_sheet_drawing_line T
+            USING (SELECT CAST(#{sheetSeq} AS BIGINT) AS SHEET_SEQ,
+                          CAST(#{d.drawingId} AS VARCHAR) AS DRAWING_ID) S
+               ON (T.SHEET_SEQ  = S.SHEET_SEQ
+               AND T.DRAWING_ID = S.DRAWING_ID)
+            WHEN MATCHED THEN UPDATE SET
+                 IMAGE_SEQ          = #{d.imageSeq},
+                 FROM_ROW_NO        = #{d.fromRowNo},
+                 FROM_ROW_OFFSET    = #{d.fromRowOffset},
+                 FROM_COLUMN_NO     = #{d.fromColumnNo},
+                 FROM_COLUMN_OFFSET = #{d.fromColumnOffset},
+                 TO_ROW_NO          = #{d.toRowNo},
+                 TO_ROW_OFFSET      = #{d.toRowOffset},
+                 TO_COLUMN_NO       = #{d.toColumnNo},
+                 TO_COLUMN_OFFSET   = #{d.toColumnOffset},
+                 ANCHOR_TYPE        = #{d.anchorType},
+                 Z_ORDER            = #{d.zOrder},
+                 DRAWING_EXTRA      = #{d.drawingExtra},
+                 MOD_DATETIME       = CURRENT_TIMESTAMP,
+                 MOD_USER            = #{userKey},
+                 DEL_DATETIME       = NULL,
+                 DEL_USER            = NULL
+            WHEN NOT MATCHED THEN INSERT (
+                 SHEET_SEQ, DRAWING_ID, IMAGE_SEQ,
+                 FROM_ROW_NO, FROM_ROW_OFFSET, FROM_COLUMN_NO, FROM_COLUMN_OFFSET,
+                 TO_ROW_NO, TO_ROW_OFFSET, TO_COLUMN_NO, TO_COLUMN_OFFSET,
+                 ANCHOR_TYPE, Z_ORDER, DRAWING_EXTRA,
+                 INPUT_DATETIME, INPUT_USER
+            ) VALUES (
+                 #{sheetSeq}, #{d.drawingId}, #{d.imageSeq},
+                 #{d.fromRowNo}, #{d.fromRowOffset}, #{d.fromColumnNo}, #{d.fromColumnOffset},
+                 #{d.toRowNo}, #{d.toRowOffset}, #{d.toColumnNo}, #{d.toColumnOffset},
+                 #{d.anchorType}, #{d.zOrder}, #{d.drawingExtra},
+                 CURRENT_TIMESTAMP, #{userKey}
+            )
+        </foreach>
+    </insert>
+
+    <!--
+      PostgreSQL. DRAWING_EXTRA 가 jsonb 라 명시 캐스팅이 필요하다. 없으면
+      "column DRAWING_EXTRA is of type jsonb but expression is of type character varying"
+      로 거부한다. Style.xml 이 STYLE_VALUE 에 같은 처리를 한다.
+
+      이 구문은 H2 로 검증되지 않는다. 실 PostgreSQL 접속 시 처음 실행된다.
+    -->
+    <insert id="upsertDrawings" databaseId="postgresql">
+        INSERT INTO wo_sheet_drawing_line (
+            SHEET_SEQ, DRAWING_ID, IMAGE_SEQ,
+            FROM_ROW_NO, FROM_ROW_OFFSET, FROM_COLUMN_NO, FROM_COLUMN_OFFSET,
+            TO_ROW_NO, TO_ROW_OFFSET, TO_COLUMN_NO, TO_COLUMN_OFFSET,
+            ANCHOR_TYPE, Z_ORDER, DRAWING_EXTRA,
+            INPUT_DATETIME, INPUT_USER
+        ) VALUES
+        <foreach collection="drawings" item="d" separator=",">
+            (#{sheetSeq}, #{d.drawingId}, #{d.imageSeq},
+             #{d.fromRowNo}, #{d.fromRowOffset}, #{d.fromColumnNo}, #{d.fromColumnOffset},
+             #{d.toRowNo}, #{d.toRowOffset}, #{d.toColumnNo}, #{d.toColumnOffset},
+             #{d.anchorType}, #{d.zOrder}, CAST(#{d.drawingExtra} AS jsonb),
+             CURRENT_TIMESTAMP, #{userKey})
+        </foreach>
+        ON CONFLICT (SHEET_SEQ, DRAWING_ID) DO UPDATE SET
+            IMAGE_SEQ          = EXCLUDED.IMAGE_SEQ,
+            FROM_ROW_NO        = EXCLUDED.FROM_ROW_NO,
+            FROM_ROW_OFFSET    = EXCLUDED.FROM_ROW_OFFSET,
+            FROM_COLUMN_NO     = EXCLUDED.FROM_COLUMN_NO,
+            FROM_COLUMN_OFFSET = EXCLUDED.FROM_COLUMN_OFFSET,
+            TO_ROW_NO          = EXCLUDED.TO_ROW_NO,
+            TO_ROW_OFFSET      = EXCLUDED.TO_ROW_OFFSET,
+            TO_COLUMN_NO       = EXCLUDED.TO_COLUMN_NO,
+            TO_COLUMN_OFFSET   = EXCLUDED.TO_COLUMN_OFFSET,
+            ANCHOR_TYPE        = EXCLUDED.ANCHOR_TYPE,
+            Z_ORDER            = EXCLUDED.Z_ORDER,
+            DRAWING_EXTRA      = EXCLUDED.DRAWING_EXTRA,
+            MOD_DATETIME       = CURRENT_TIMESTAMP,
+            MOD_USER            = #{userKey},
+            DEL_DATETIME       = NULL,
+            DEL_USER            = NULL
+    </insert>
+</mapper>

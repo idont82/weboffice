@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>문서 보기 이력 — KCC Web Office</title>
+    <style>
+      body { margin: 0; font-family: system-ui, sans-serif; color: #333; padding: 24px; }
+      h1 { font-size: 18px; margin: 0 0 16px; }
+      .admin-stats { display: flex; gap: 24px; margin-bottom: 16px; }
+      .admin-stat { display: flex; flex-direction: column; gap: 2px; }
+      .admin-stat-name { color: #888; font-size: 12px; }
+      .admin-stat strong { font-size: 20px; }
+      .admin-tabs { display: flex; gap: 6px; margin-bottom: 12px; }
+      .admin-tabs button {
+        border: 1px solid #d0d5da; background: #fff; border-radius: 4px;
+        padding: 4px 12px; font: inherit; cursor: pointer;
+      }
+      .admin-tabs button:hover { border-color: #1a5fc8; color: #1a5fc8; }
+      .admin-row {
+        display: grid; grid-template-columns: 150px 70px 100px 1fr 50px 120px 70px 120px 1fr 110px;
+        gap: 8px; padding: 6px 0; border-bottom: 1px solid #f0f2f4; font-size: 13px;
+      }
+      .admin-cell { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .admin-empty { color: #888; }
+    </style>
+  </head>
+  <body>
+    <h1>문서 보기 이력</h1>
+    <div id="adminRoot"></div>
+    <script type="module" src="/src/viewAdminMain.ts"></script>
+  </body>
+</html>

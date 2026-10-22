@@ -1,0 +1,115 @@
+server:
+  port: 8710
+
+  # 응답을 줄여 보낸다. 셀이 십만 개인 시트는 JSON 이 수십 MB 라 그대로 보내면
+  # 여는 데만 몇 초가 걸린다(2026-08-18 실측: 27MB).
+  compression:
+    enabled: true
+    mime-types: application/json,text/html,text/css,text/plain,application/javascript
+    min-response-size: 2KB
+
+  servlet:
+    session:
+      # 재기동해도 로그인이 풀리지 않게 한다.
+      #
+      # 톰캣이 종료할 때 살아 있는 세션을 SESSIONS.ser 로 쓰고 시작할 때 다시 읽는다.
+      # 배포·설정 변경 때마다 쓰던 사람이 전부 로그인 화면으로 튕기지 않는다.
+      #
+      # 조건이 둘이다. (1) 세션에 담기는 것이 전부 Serializable 이어야 한다 -
+      # LoginUser 와 공개 링크 허가 집합이 그렇다. 하나라도 아니면 세션이 통째로
+      # 버려진다. (2) 정상 종료여야 한다. 강제 종료(kill -9, 작업 관리자)는 종료 훅이
+      # 돌지 않아 파일이 안 써진다.
+      persistent: true
+      # 기본값은 톰캣 작업 디렉터리(임시 폴더)라 OS 청소에 지워질 수 있다.
+      store-dir: ./data/sessions
+      # SSO 세션과 별개로 서블릿 세션이 이만큼 놀면 끊는다.
+      timeout: 8h
+
+spring:
+  application:
+    name: kweboffice
+  web:
+    resources:
+      cache:
+        cachecontrol:
+          # 브라우저가 index.html 을 붙잡고 있어 새 화면을 배포해도 옛 번들을 계속
+          # 썼다(2026-08-07 실측). html 은 이름이 늘 같아 캐시하면 안 된다.
+          #
+          # 이름에 해시가 붙은 /assets/ 아래는 WebMvcConfig 가 따로 1년을 준다 -
+          # 내용이 바뀌면 이름이 바뀌므로 안전하고, 매번 받으면 문서를 열 때마다
+          # 6MB 를 내려받는다.
+          no-store: true
+  servlet:
+    multipart:
+      # 뷰어 한도(weboffice.view.max-file-mb=50MB)보다 조금 위에 둔다.
+      #
+      # 같은 값으로 두면 51MB 를 올릴 때 우리 코드가 TOO_LARGE(413)를 돌려주기
+      # 전에 톰캣이 먼저 끊어 500 이 나간다. 부르는 시스템은 "너무 크다" 가 아니라
+      # "저쪽이 고장 났다" 로 알아듣고, 이력에도 안 남는다.
+      max-file-size: 60MB
+      max-request-size: 60MB
+logging:
+  level:
+    weboffice: DEBUG
+
+weboffice:
+  history:
+    # 편집 이력(누가 언제 어느 칸을 고쳤나)을 며칠 두는가.
+    #
+    # 이력은 늘기만 하고 줄지 않는다 - 넉 주 쓴 개발 DB 에서 셀 이력이 200만 줄,
+    # 1GB 였다(원본 셀보다 두 배 무겁다). 고치기 전·후 값을 JSON 통째로 담기
+    # 때문이다(2026-09-04 실측).
+    #
+    # 지워도 되는 까닭은 복구 지점이 그때 문서 모습을 들고 있어서다. 0 으로 두면
+    # 지우지 않는다.
+    keep-days: 14
+  realtime:
+    # WebSocket 핸드셰이크를 허용할 origin. 배포하는 도메인으로 바꾼다.
+    # '*' 를 쓰면 어느 사이트에서든 사용자의 세션 쿠키로 연결을 열 수 있다.
+    allowed-origin-patterns: ${WO_WS_ORIGINS:http://localhost:*}
+  auth:
+    # open       로그인 화면이 없다. 들어오는 사람마다 손님 신원을 받는다.
+    #            누구나 문서를 만들고 공유할 수 있다 - 신뢰된 망에서만 쓸 것.
+    # registered 관리자가 이메일로 등록한 사람만 들어온다.
+    mode: ${WO_AUTH_MODE:open}
+    # registered 의 첫 관리자. 처음 뜰 때 이 이메일로 계정을 만들고 초대 링크를
+    # 기동 로그에 한 번 찍는다. 이미 있으면 아무것도 하지 않는다.
+    admin-email: ${WO_ADMIN_EMAIL:}
+    # 초대 링크 유효기간(시간).
+    invite-hours: ${WO_INVITE_HOURS:72}
+  image:
+    # 올릴 수 있는 이미지 한 장의 최대 크기(바이트). Univer 기본값 5MB 와 맞춘다.
+    # 이보다 크게 잡으려면 spring.servlet.multipart.max-file-size 도 함께 올려야 한다.
+    max-size: 5242880
+  lock:
+    # 하트비트가 끊긴 잠금이 살아 있는 최대 시간.
+    ttl-seconds: 60
+    # 만료 회수 주기. TTL 60초 + 주기 10초라 최대 70초 안에 풀린다.
+    reclaim-interval-ms: 10000
+  view:
+    # 다른 시스템이 문서를 밀어 넣어 웹에서 보게 하는 길. 기본은 꺼 둔다.
+    #
+    # POST /api/view/documents 는 세션 인증을 거치지 않고 X-WO-API-KEY 와
+    # 허용 대역으로만 막는다. 인증 없는 문서 업로드 끝점이 기본으로 열려 있는
+    # 것은 위험 등급이 다르다 - 쓰려는 사람이 켜고 열쇠와 대역을 직접 정한다.
+    enabled: ${WO_VIEW_ENABLED:false}
+    token-minutes: 5
+    session-hours: 8
+    cache-minutes: 60
+    max-file-mb: 50
+    admins: []
+    # 부를 수 있는 곳을 주소로만 가린다. 열쇠를 나눠 주고 갈아 끼우는 값이 사내망
+    # 대역으로 조이는 것보다 크지 않다는 판단이다(2026-08-20 결정). 더 좁혀야 할
+    # 시스템에는 key 를 함께 적으면 그 항목만 열쇠도 본다.
+    # 보기 끝점을 쓰려면 여기에 부르는 쪽을 적는다. 비어 있으면 아무도 못 부른다.
+    #
+    #   callers:
+    #     - name: 결재시스템
+    #       addresses: 192.0.2.0/24
+    #       key: ${WO_VIEW_KEY_APPROVAL}
+    callers: []
+
+mybatis:
+  mapper-locations: classpath*:mappers/**/*.xml
+  configuration:
+    map-underscore-to-camel-case: true

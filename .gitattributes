@@ -1,0 +1,12 @@
+# 바이너리는 줄바꿈을 건드리면 안 된다.
+#
+# core.autocrlf=true 인 윈도우에서는 git 이 내려받을 때 LF 를 CRLF 로 바꾼다.
+# 텍스트에는 맞는 처리지만 바이너리에 하면 파일이 깨진다. 문서보안 정책 파일
+# 처럼 한 바이트만 달라져도 못 쓰게 되는 것이 있다.
+*.dat binary
+*.xlsx binary
+*.xls binary
+*.jar binary
+*.png binary
+*.jpg binary
+*.ico binary

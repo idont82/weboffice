@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="weboffice.drawing.ImageMapper">
+
+    <select id="selectImageSeqByHash" resultType="java.lang.Long">
+        SELECT IMAGE_SEQ
+          FROM wo_sheet_image_master
+         WHERE WORKBOOK_SEQ = #{workbookSeq}
+           AND IMAGE_HASH   = #{imageHash}
+           AND DEL_DATETIME IS NULL
+    </select>
+
+    <select id="selectImage" resultType="weboffice.drawing.ImageRow">
+        SELECT IMAGE_SEQ, WORKBOOK_SEQ, IMAGE_HASH, MIME_TYPE, IMAGE_SIZE, IMAGE_DATA
+          FROM wo_sheet_image_master
+         WHERE IMAGE_SEQ = #{imageSeq}
+           AND DEL_DATETIME IS NULL
+    </select>
+
+    <!--
+      바이트 컬럼에는 벤더 분기가 없다. PostgreSQL bytea 와 H2 VARBINARY 모두
+      JDBC setBytes/getBytes 로 오간다. 이 프로젝트에서 분기가 생기는 것은
+      jsonb 와 업서트뿐이다.
+
+      keyColumn 은 대문자로 둔다. PostgreSQL 에서 통하려면 JDBC URL 에
+      quoteReturningIdentifiers=false 가 있어야 한다 - application-postgresql.yml
+      이 그것을 싣고 있다. 소문자로 바꾸는 쪽이 더 자연스럽겠지만 돌아가는 것을
+      이유 없이 건드리지 않는다.
+    -->
+    <insert id="insertImage" useGeneratedKeys="true"
+            keyProperty="image.imageSeq" keyColumn="IMAGE_SEQ">
+        INSERT INTO wo_sheet_image_master (
+            WORKBOOK_SEQ, IMAGE_HASH, MIME_TYPE, IMAGE_SIZE, IMAGE_DATA,
+            INPUT_DATETIME, INPUT_USER
+        ) VALUES (
+            #{image.workbookSeq}, #{image.imageHash}, #{image.mimeType},
+            #{image.imageSize}, #{image.imageData},
+            CURRENT_TIMESTAMP, #{userKey}
+        )
+    </insert>
+
+</mapper>

@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="weboffice.sheet.ChangeLogMapper">
+
+    <!--
+      이력 삽입은 셀 저장마다 따라붙는 경로라 다중 행을 한 문장으로 묶는 값어치가 있다.
+      묶는 문법이 벤더마다 달라 여기도 갈린다.
+    -->
+
+    <!-- 기본(H2). ORG_VALUE/MOD_VALUE 가 CLOB 이라 문자열을 그대로 넣는다. -->
+    <insert id="insertLogs">
+        INSERT INTO wo_cell_change_log (
+            SHEET_SEQ, ROW_NO, COLUMN_NO, CHANGE_TYPE, ORG_VALUE, MOD_VALUE,
+            INPUT_DATETIME, INPUT_USER
+        ) VALUES
+        <foreach collection="logs" item="log" separator=",">
+            (#{log.sheetSeq}, #{log.rowNo}, #{log.columnNo}, #{log.changeType},
+             #{log.orgValue}, #{log.modValue}, CURRENT_TIMESTAMP, #{userKey})
+        </foreach>
+    </insert>
+
+    <!--
+      PostgreSQL. 문장 구조는 기본과 같지만 ORG_VALUE/MOD_VALUE 가 jsonb 라
+      명시 캐스팅이 필요하다. Style.xml 의 STYLE_VALUE 와 같은 이유다.
+
+      이 구문은 H2 로 검증되지 않는다. 실 PostgreSQL 접속 시 처음 실행된다.
+    -->
+    <insert id="insertLogs" databaseId="postgresql">
+        INSERT INTO wo_cell_change_log (
+            SHEET_SEQ, ROW_NO, COLUMN_NO, CHANGE_TYPE, ORG_VALUE, MOD_VALUE,
+            INPUT_DATETIME, INPUT_USER
+        ) VALUES
+        <foreach collection="logs" item="log" separator=",">
+            (#{log.sheetSeq}, #{log.rowNo}, #{log.columnNo}, #{log.changeType},
+             CAST(#{log.orgValue} AS jsonb), CAST(#{log.modValue} AS jsonb),
+             CURRENT_TIMESTAMP, #{userKey})
+        </foreach>
+    </insert>
+    <!--
+      FETCH FIRST n ROWS ONLY 는 PostgreSQL 과 H2 가 함께 지원하는 표준이다.
+      LIMIT 을 쓰면 벤더 분기가 하나 더 생긴다.
+    -->
+    <!--
+      버전 목록. 문서에 딸린 모든 시트의 기록을 한 줄기로 본다 - 사람은 "그때의
+      문서" 를 되돌리지 시트 하나만 되돌리지 않는다.
+    -->
+    <select id="selectWorkbookLogHeads" resultType="weboffice.sheet.LogHeadRow">
+        SELECT L.LOG_SEQ, L.INPUT_DATETIME AS CHANGED_AT, L.INPUT_USER AS CHANGED_USER
+          FROM wo_cell_change_log L
+          JOIN wo_workbook_sheet_line S ON S.SHEET_SEQ = L.SHEET_SEQ
+         WHERE S.WORKBOOK_SEQ = #{workbookSeq}
+           AND L.DEL_DATETIME IS NULL
+         ORDER BY L.LOG_SEQ DESC
+         FETCH FIRST #{limit} ROWS ONLY
+    </select>
+
+    <!--
+      버전 하나를 펼쳐 볼 때 쓴다. 시트 이름까지 함께 읽어 "시트1 · C2" 로 적는다.
+    -->
+    <select id="selectWorkbookLogsBetween"
+            resultType="weboffice.sheet.VersionChangeRow">
+        SELECT S.SHEET_NAME, L.ROW_NO, L.COLUMN_NO, L.ORG_VALUE, L.MOD_VALUE,
+               L.INPUT_DATETIME AS CHANGED_AT, L.INPUT_USER AS CHANGED_USER
+          FROM wo_cell_change_log L
+          JOIN wo_workbook_sheet_line S ON S.SHEET_SEQ = L.SHEET_SEQ
+         WHERE S.WORKBOOK_SEQ = #{workbookSeq}
+           AND L.INPUT_DATETIME >= #{fromAt}
+           AND L.INPUT_DATETIME <![CDATA[<=]]> #{toAt}
+           AND L.DEL_DATETIME IS NULL
+         ORDER BY L.LOG_SEQ DESC
+         FETCH FIRST #{limit} ROWS ONLY
+    </select>
+
+    <!-- 되돌리기가 읽는다. 오래된 것이 앞이라 같은 칸은 첫 줄의 ORG_VALUE 가 그때 값이다. -->
+    <select id="selectWorkbookLogsAfter" resultType="weboffice.sheet.LogValueRow">
+        SELECT L.SHEET_SEQ, L.ROW_NO, L.COLUMN_NO, L.ORG_VALUE
+          FROM wo_cell_change_log L
+          JOIN wo_workbook_sheet_line S ON S.SHEET_SEQ = L.SHEET_SEQ
+         WHERE S.WORKBOOK_SEQ = #{workbookSeq}
+           AND L.INPUT_DATETIME > #{afterAt}
+           AND L.DEL_DATETIME IS NULL
+         ORDER BY L.LOG_SEQ ASC
+    </select>
+
+    <!--
+      칸 하나의 기록. 구글 시트의 "수정 기록 표시" 가 쓰는 것과 같은 자료다.
+      인덱스는 (SHEET_SEQ, INPUT_DATETIME DESC) 라 시트 안에서 걸러 읽는다.
+    -->
+    <select id="selectCellHistory"
+            resultType="weboffice.sheet.CellHistoryLogRow">
+        SELECT CHANGE_TYPE, ORG_VALUE, MOD_VALUE,
+               INPUT_DATETIME AS CHANGED_AT, INPUT_USER AS CHANGED_USER
+          FROM wo_cell_change_log
+         WHERE SHEET_SEQ = #{sheetSeq}
+           AND ROW_NO    = #{rowNo}
+           AND COLUMN_NO = #{columnNo}
+           AND DEL_DATETIME IS NULL
+         ORDER BY LOG_SEQ DESC
+         FETCH FIRST #{limit} ROWS ONLY
+    </select>
+
+    <select id="selectRecentLogs" resultType="weboffice.sheet.ChangeLogRow">
+        SELECT SHEET_SEQ, ROW_NO, COLUMN_NO, CHANGE_TYPE, ORG_VALUE, MOD_VALUE
+          FROM wo_cell_change_log
+         WHERE SHEET_SEQ = #{sheetSeq}
+           AND DEL_DATETIME IS NULL
+         ORDER BY LOG_SEQ DESC
+         FETCH FIRST #{limit} ROWS ONLY
+    </select>
+
+</mapper>

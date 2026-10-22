@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="weboffice.view.ViewSessionMapper">
+
+    <insert id="insertSession" useGeneratedKeys="true" keyProperty="row.sessionSeq"
+            keyColumn="SESSION_SEQ">
+        INSERT INTO wo_view_session (
+            TOKEN_HASH, FILE_NAME, DOC_TYPE, FILE_HASH, BYTE_SIZE, CALLER_SYSTEM,
+            VIEWER_NAME, ENCRYPTED_YN, STATE, EXPIRES_AT, INPUT_DATETIME, INPUT_USER
+        ) VALUES (
+            #{row.tokenHash}, #{row.fileName}, #{row.docType}, #{row.fileHash},
+            #{row.byteSize}, #{row.callerSystem}, #{row.viewerName}, #{row.encryptedYn},
+            #{row.state}, #{row.expiresAt}, CURRENT_TIMESTAMP, #{userKey}
+        )
+    </insert>
+
+    <sql id="columns">
+        SESSION_SEQ, TOKEN_HASH, FILE_NAME, DOC_TYPE, FILE_HASH, BYTE_SIZE,
+        CALLER_SYSTEM, VIEWER_NAME, ENCRYPTED_YN, STATE, EXPIRES_AT, OPENED_AT, LAST_SEEN_AT,
+        SESSION_KEY_HASH
+    </sql>
+
+    <select id="selectByTokenHash" resultType="weboffice.view.ViewSessionRow">
+        SELECT <include refid="columns"/>
+          FROM wo_view_session
+         WHERE TOKEN_HASH = #{tokenHash}
+           AND DEL_DATETIME IS NULL
+    </select>
+
+    <select id="selectBySeq" resultType="weboffice.view.ViewSessionRow">
+        SELECT <include refid="columns"/>
+          FROM wo_view_session
+         WHERE SESSION_SEQ = #{sessionSeq}
+           AND DEL_DATETIME IS NULL
+    </select>
+
+    <!-- 창 세션 쿠키의 난수 해시로 찾는다. 순번(SESSION_SEQ)이 아니라 이걸로
+         찾아야 남의 세션 번호를 찍어 맞히는 길이 없다(IDOR 방지). -->
+    <select id="selectBySessionKeyHash" resultType="weboffice.view.ViewSessionRow">
+        SELECT <include refid="columns"/>
+          FROM wo_view_session
+         WHERE SESSION_KEY_HASH = #{sessionKeyHash}
+           AND DEL_DATETIME IS NULL
+    </select>
+
+    <update id="markOpened">
+        UPDATE wo_view_session
+           SET STATE = 'OPENED',
+               OPENED_AT = CURRENT_TIMESTAMP,
+               LAST_SEEN_AT = CURRENT_TIMESTAMP,
+               SESSION_KEY_HASH = #{sessionKeyHash},
+               MOD_DATETIME = CURRENT_TIMESTAMP
+         WHERE SESSION_SEQ = #{sessionSeq}
+           AND STATE = 'ISSUED'
+    </update>
+
+    <update id="touch">
+        UPDATE wo_view_session
+           SET LAST_SEEN_AT = CURRENT_TIMESTAMP
+         WHERE SESSION_SEQ = #{sessionSeq}
+    </update>
+
+</mapper>

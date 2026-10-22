@@ -1,0 +1,275 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>4.0.0</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>weboffice</groupId>
+    <artifactId>weboffice</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <name>kweboffice</name>
+    <description>KCC Web Office - 여러 사람이 함께 쓰는 웹 오피스</description>
+
+    <properties>
+        <java.version>21</java.version>
+        <poi.version>5.2.5</poi.version>
+        <hwplib.version>1.1.10</hwplib.version>
+        <hwpxlib.version>1.0.9</hwpxlib.version>
+        <!-- 내장 PostgreSQL 바이너리. 아래 프로필 넷이 같은 값을 쓴다. -->
+        <embedded.postgres.version>17.2.0</embedded.postgres.version>
+        <!--
+          프런트 빌드를 Maven 이 하지 않게 끈다.
+
+          컨테이너 빌드가 쓴다. 거기서는 node 를 node 베이스 이미지에서 가져오고
+          번들을 미리 만들어 넣으므로, Maven 이 node 를 또 내려받을 이유가 없다 -
+          받으려 하면 nodejs.org 에 닿아야 하고 그것이 빌드를 망 사정에 묶는다.
+        -->
+        <skip.frontend>false</skip.frontend>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-websocket</artifactId>
+        </dependency>
+
+        <!-- 비밀번호 해시(BCrypt)만 쓴다. starter-security 가 아니라 crypto 모듈
+             하나다 - starter 를 쓰면 필터 사슬이 함께 올라와 우리 인터셉터와
+             두 겹이 된다. 버전은 상위 pom 이 정한다. -->
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-crypto</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.poi</groupId>
+            <artifactId>poi-ooxml</artifactId>
+            <version>${poi.version}</version>
+        </dependency>
+
+        <!-- 한글 문서 읽기. hwp(2진)와 hwpx(OWPML)는 파일 형식이 서로 달라 만드는 곳도
+             다르다. 둘 다 Apache-2.0 이다. 쓰기는 하지 않는다 - 내보내기는 docx 다. -->
+        <dependency>
+            <groupId>kr.dogfoot</groupId>
+            <artifactId>hwplib</artifactId>
+            <version>${hwplib.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>kr.dogfoot</groupId>
+            <artifactId>hwpxlib</artifactId>
+            <version>${hwpxlib.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- Boot 4 모듈 분할: MockMvc 자동설정(@AutoConfigureMockMvc)이 이 모듈로 이동했다.
+             spring-boot-starter-test 에는 포함되지 않으므로 명시해야 한다. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webmvc-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- 버전 선택 규칙: parent(4.0.0)와 정확히 일치하는 spring-boot.version 을 참조하는
+             릴리스를 쓴다(최고 버전 4.1.0 은 spring-boot.version=4.1.0 을 참조해 마이너 스큐가 남). -->
+        <dependency>
+            <groupId>org.mybatis.spring.boot</groupId>
+            <artifactId>mybatis-spring-boot-starter</artifactId>
+            <version>4.0.0</version>
+        </dependency>
+
+        <!-- 1차 구축 대상 DBMS(스펙 2-1절). postgresql 프로파일이 쓴다. -->
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!--
+          진짜 PostgreSQL 을 띄워 운영 스키마와 운영 매퍼 분기를 검증한다.
+
+          Docker 가 아니다. 이 의존이 PostgreSQL 바이너리를 품고 있어
+          initdb·postgres 를 일반 사용자 권한으로 임시 디렉터리에 띄운다 -
+          받침(sudo)도, Docker 도, 미리 깔아 둔 서버도 필요 없다.
+
+          왜 필요한가: 나머지 시험은 전부 H2 에서 돈다. db/schema-postgresql.sql
+          과 매퍼의 databaseId="postgresql" 열한 개는 어떤 시험에서도 돌지 않아,
+          틀려 있으면 docker compose up 을 한 사람에게서만 터진다. 실제로 이
+          의존을 넣고 돌려서 DROP 문 넷이 빠진 것을 찾았다(2026-10-22).
+
+          바이너리는 플랫폼마다 다른 artifact 다. 아래 프로필이 돌리는 장비를
+          보고 고른다 - 안 그러면 리눅스 기여자가 mvn test 에서 바로 막힌다.
+        -->
+        <dependency>
+            <groupId>io.zonky.test</groupId>
+            <artifactId>embedded-postgres</artifactId>
+            <version>2.0.7</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <!--
+      내장 PostgreSQL 바이너리는 플랫폼마다 다른 artifact 다. 돌리는 장비를
+      보고 하나를 고른다 - 전부 넣으면 쓰지 않는 20MB 를 네 번 받는다.
+
+      activeByDefault 를 쓰지 않는다. 그것은 다른 프로필이 켜지면 조용히
+      꺼져서, -P 를 하나 붙인 사람에게만 시험이 깨진다.
+    -->
+    <profiles>
+        <profile>
+            <id>pg-binaries-windows</id>
+            <activation>
+                <os><family>windows</family></os>
+            </activation>
+            <dependencies>
+                <dependency>
+                    <groupId>io.zonky.test.postgres</groupId>
+                    <artifactId>embedded-postgres-binaries-windows-amd64</artifactId>
+                    <version>${embedded.postgres.version}</version>
+                    <scope>test</scope>
+                </dependency>
+            </dependencies>
+        </profile>
+        <profile>
+            <id>pg-binaries-linux</id>
+            <activation>
+                <os><name>Linux</name><arch>amd64</arch></os>
+            </activation>
+            <dependencies>
+                <dependency>
+                    <groupId>io.zonky.test.postgres</groupId>
+                    <artifactId>embedded-postgres-binaries-linux-amd64</artifactId>
+                    <version>${embedded.postgres.version}</version>
+                    <scope>test</scope>
+                </dependency>
+            </dependencies>
+        </profile>
+        <profile>
+            <id>pg-binaries-linux-arm</id>
+            <activation>
+                <os><name>Linux</name><arch>aarch64</arch></os>
+            </activation>
+            <dependencies>
+                <dependency>
+                    <groupId>io.zonky.test.postgres</groupId>
+                    <artifactId>embedded-postgres-binaries-linux-arm64v8</artifactId>
+                    <version>${embedded.postgres.version}</version>
+                    <scope>test</scope>
+                </dependency>
+            </dependencies>
+        </profile>
+        <profile>
+            <id>pg-binaries-mac</id>
+            <activation>
+                <os><family>mac</family></os>
+            </activation>
+            <dependencies>
+                <dependency>
+                    <groupId>io.zonky.test.postgres</groupId>
+                    <artifactId>embedded-postgres-binaries-darwin-amd64</artifactId>
+                    <version>${embedded.postgres.version}</version>
+                    <scope>test</scope>
+                </dependency>
+            </dependencies>
+        </profile>
+    </profiles>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>com.github.eirslett</groupId>
+                <artifactId>frontend-maven-plugin</artifactId>
+                <version>1.15.1</version>
+                <configuration>
+                    <!-- 컨테이너 빌드가 -Dskip.frontend=true 로 통째로 끈다. -->
+                    <skip>${skip.frontend}</skip>
+                    <workingDirectory>frontend</workingDirectory>
+                    <!--
+                      22.12.0 이상이어야 한다. v22.11.0 이면 번들이 죽는다.
+
+                      rolldown(vite 8 의 번들러)의 플랫폼별 네이티브 바인딩이
+                      engines: "^20.19.0 || >=22.12.0" 을 건다. npm 은 옵셔널 의존이
+                      engines 를 못 맞추면 에러 없이 건너뛴다 - 설치는 "성공" 하고
+                      바인딩만 빠진다. 그 상태로 vite build 를 하면
+                      "Cannot find native binding" 으로 죽는다(2026-08-13 젠킨스 실측).
+
+                      npm 의 옵셔널 의존 버그(npm/cli#4828)라는 안내가 오류 메시지에
+                      같이 나오지만 이 건은 그것이 아니다. node 를 올리면 같은
+                      package-lock.json 으로 바인딩이 그대로 깔린다(실측).
+                    -->
+                    <nodeVersion>v24.13.0</nodeVersion>
+                    <!--
+                      npm 도 못 박는다.
+
+                      안 적으면 플러그인이 node 버전을 올릴 때 node.exe 만 갈아끼우고
+                      옛 node 에 딸려 있던 npm 을 그대로 둔다. 새 node 에 옛 npm 이
+                      얹히면 "Class extends value undefined is not a constructor or null"
+                      로 죽는다(2026-08-13 실측, v22.11.0 -> v24.13.0).
+
+                      주의: 이 설정도 이미 어긋난 frontend/node 를 되돌리지는 못한다.
+                      플러그인이 node 버전만 보고 npm 재설치를 건너뛰기 때문이다.
+                      한 번 어긋났으면 frontend/node 와 frontend/node_modules 를
+                      지우고 다시 받아야 한다.
+                    -->
+                    <npmVersion>11.6.2</npmVersion>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>install-node-and-npm</id>
+                        <goals><goal>install-node-and-npm</goal></goals>
+                    </execution>
+                    <!--
+                      install 이 아니라 ci 다.
+
+                      npm install 은 이미 있는 node_modules 를 믿고 넘어간다. 젠킨스는
+                      작업 디렉터리를 빌드마다 지우지 않으므로, 옛 node 로 만들어져
+                      바인딩이 빠진 트리가 그대로 남는다 - node 를 올려도 install 만으로는
+                      안 고쳐진다.
+
+                      ci 는 node_modules 를 먼저 지우고 package-lock.json 그대로만
+                      설치한다. 어긋난 상태가 남지 않고, 젠킨스와 개발 장비가 같은 것을
+                      쓰게 된다. 대신 매번 새로 받으므로 빌드가 조금 느려진다.
+                    -->
+                    <execution>
+                        <id>npm-ci</id>
+                        <goals><goal>npm</goal></goals>
+                        <configuration><arguments>ci</arguments></configuration>
+                    </execution>
+                    <execution>
+                        <id>npm-build</id>
+                        <goals><goal>npm</goal></goals>
+                        <phase>prepare-package</phase>
+                        <configuration><arguments>run build</arguments></configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>

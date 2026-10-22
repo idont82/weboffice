@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Web Office 로그인</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <style>
+    /*
+      시작 화면과 같은 색·굵기를 쓴다. 로그인만 다른 얼굴이면 다른 시스템으로 읽힌다.
+      초록 #217346 은 엑셀 계열이고, 시작 화면 제목·타일이 이미 이 색이다.
+    */
+    :root {
+      --wo-green: #217346;
+      --wo-line: #e3e6e8;
+      --wo-muted: #777;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0; min-height: 100vh;
+      display: grid; grid-template-columns: 1fr;
+      font: 14px/1.5 system-ui, sans-serif; color: #222; background: #fff;
+    }
+
+    /* 넓은 화면에서는 왼쪽에 시스템, 오른쪽에 입력. 좁으면 위아래로 쌓인다. */
+    @media (min-width: 56rem) {
+      body { grid-template-columns: 1fr 1fr; }
+      .brand { border-right: 1px solid var(--wo-line); border-bottom: 0; }
+    }
+
+    .brand {
+      display: flex; flex-direction: column; justify-content: center;
+      gap: 10px; padding: 48px 40px;
+      background: #f7faf8; border-bottom: 1px solid var(--wo-line);
+    }
+    .brand h1 {
+      margin: 0; font-size: 34px; font-weight: 300; color: var(--wo-green);
+    }
+    .brand p { margin: 0; color: var(--wo-muted); }
+    .brand ul {
+      margin: 18px 0 0; padding: 0; list-style: none;
+      display: grid; gap: 8px; color: #444;
+    }
+    .brand li { display: flex; align-items: center; gap: 10px; }
+    .brand .mark {
+      display: grid; place-items: center; width: 26px; height: 26px;
+      border-radius: 5px; background: var(--wo-green); color: #fff; font-size: 14px;
+    }
+
+    .panel {
+      display: flex; flex-direction: column; justify-content: center;
+      padding: 48px 40px;
+    }
+    .panel form { display: grid; gap: 14px; width: 100%; max-width: 20rem; }
+    .panel h2 { margin: 0 0 6px; font-size: 18px; font-weight: 600; }
+    label { display: grid; gap: 6px; font-size: 13px; color: #555; }
+    input {
+      font: inherit; padding: 9px 11px;
+      border: 1px solid #ddd; border-radius: 5px; background: #fff;
+    }
+    input:focus { border-color: var(--wo-green); outline: 2px solid #dcefe3; }
+    button {
+      font: inherit; font-weight: 600; padding: 10px 12px; margin-top: 4px;
+      border: 0; border-radius: 5px; background: var(--wo-green); color: #fff;
+      cursor: pointer;
+    }
+    button:hover { background: #1b5c38; }
+
+    /* 자리를 늘 잡아 둔다. 오류가 뜰 때 폼이 밀리면 누르던 자리가 어긋난다. */
+    #message { margin: 10px 0 0; min-height: 1.25rem; color: #b00020; font-size: 13px; }
+    .note { margin: 18px 0 0; color: var(--wo-muted); font-size: 12px; max-width: 20rem; }
+  </style>
+</head>
+<body>
+  <section class="brand">
+    <h1>Web Office</h1>
+    <p>브라우저에서 함께 여는 문서</p>
+    <ul>
+      <li><span class="mark">↗</span> 엑셀 파일을 올려 그대로 이어서 편집</li>
+      <li><span class="mark">＋</span> 여러 사람이 같은 시트를 동시에 편집</li>
+      <li><span class="mark">✓</span> 사람을 지정한 공유와 링크 공개</li>
+    </ul>
+  </section>
+
+  <section class="panel">
+    <form id="loginForm">
+      <h2>로그인</h2>
+      <label>이메일
+        <input name="email" type="email" autocomplete="username" autofocus required>
+      </label>
+      <label>비밀번호
+        <input name="password" type="password" autocomplete="current-password" required>
+      </label>
+      <button type="submit">로그인</button>
+      <p id="message" role="alert"></p>
+    </form>
+    <p class="note">관리자가 등록한 이메일로 로그인합니다.</p>
+  </section>
+
+  <script>
+    // 비밀번호는 POST 본문으로만 보낸다. URL 이나 로그에 남기지 않는다.
+    document.getElementById('loginForm').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const button = event.target.querySelector('button');
+      const message = document.getElementById('message');
+      const form = new FormData(event.target);
+
+      // 두 번 눌러 두 번 인증하는 것을 막는다. 해시를 맞춰 보는 데 시간이
+      // 걸리므로(BCrypt 는 일부러 느리다) 실제로 겹친다.
+      button.disabled = true;
+      button.textContent = '확인 중…';
+      message.textContent = '';
+      try {
+        const response = await fetch('/api/login', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: form.get('email'), password: form.get('password') }),
+        });
+        if (response.ok) {
+          const returnTo = new URLSearchParams(location.search).get('returnTo');
+          location.href = returnTo || '/';
+          return;
+        }
+        const body = await response.json().catch(() => ({ message: '로그인에 실패했습니다' }));
+        message.textContent = body.message;
+      } catch {
+        message.textContent = '서버에 연결하지 못했습니다.';
+      } finally {
+        button.disabled = false;
+        button.textContent = '로그인';
+      }
+    });
+  </script>
+</body>
+</html>

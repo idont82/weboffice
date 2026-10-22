@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="weboffice.sheet.HistoryPurgeMapper">
+
+    <!--
+      오래된 편집 이력을 지운다.
+
+      이력은 늘기만 하고 줄지 않았다. 넉 주 쓴 개발 DB 에서 셀 이력이 200만 줄,
+      1GB 였다 - 원본 셀(366만 줄, 489MB)보다 두 배 무겁다. 고치기 전·후 값을
+      JSON 통째로 담기 때문이다(2026-09-04 실측).
+
+      복구 지점이 있어 오래된 이력을 지워도 그때 모습은 되살릴 수 있다.
+
+      한 번에 다 지우지 않고 나눠 지운다. 백만 줄을 한 문장으로 지우면 그동안
+      표가 잠기고 WAL 이 부푼다.
+    -->
+
+    <delete id="deleteOldCellLogs">
+        DELETE FROM wo_cell_change_log
+         WHERE LOG_SEQ IN (
+               SELECT LOG_SEQ FROM wo_cell_change_log
+                WHERE INPUT_DATETIME &lt; #{before}
+                ORDER BY LOG_SEQ
+                LIMIT #{limit})
+    </delete>
+
+    <delete id="deleteOldDocLogs">
+        DELETE FROM wo_doc_change_log
+         WHERE LOG_SEQ IN (
+               SELECT LOG_SEQ FROM wo_doc_change_log
+                WHERE INPUT_DATETIME &lt; #{before}
+                ORDER BY LOG_SEQ
+                LIMIT #{limit})
+    </delete>
+</mapper>

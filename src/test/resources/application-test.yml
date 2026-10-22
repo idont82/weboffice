@@ -1,0 +1,51 @@
+# 개발·테스트용 H2 프로파일.
+#
+# 1차 대상 DBMS 는 PostgreSQL 이지만 접속 정보 수령 전까지 H2 로 진행한다.
+# MODE=PostgreSQL 로 띄우되, H2 는 PG 의 INSERT ... ON CONFLICT 를 지원하지
+# 않으므로(2026-08-03 실측) 업서트는 databaseId="h2" 변형(MERGE INTO)이 선택된다.
+# 즉 이 프로파일의 통과는 PostgreSQL 통과의 증거가 아니다.
+spring:
+  datasource:
+    url: jdbc:h2:mem:wo;MODE=PostgreSQL;DB_CLOSE_DELAY=-1
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:db/schema-h2.sql
+
+weboffice:
+  lock:
+    ttl-seconds: 60
+    # 테스트에서 스케줄러가 저절로 돌면 검증 대상이 흐려진다. 직접 호출한 결과만 본다.
+    reclaim-interval-ms: 3600000
+  snapshot:
+    # 같은 이유로 복구 지점 일꾼도 멀리 밀어 둔다.
+    #
+    # 기본은 5분마다다. 전체 시험이 그보다 오래 걸리면 중간에 SESSION 한 장이
+    # 저절로 끼어들어, DAILY 한 장만 있기를 바라는 시험이 가끔 깨진다 - 단독으로
+    # 돌리면 통과하고 전체로 돌리면 실패하는 깜빡임이었다(2026-10-22 추적).
+    session-interval-ms: 3600000
+    # 새벽 세 시 cron 도 시험이 도는 동안에는 오지 않게 2월 30일로 둔다.
+    daily-cron: "0 0 3 30 2 *"
+  view:
+    # 기본(application.yml)은 꺼져 있다. 그 기능을 보는 시험이 있으므로 켠다.
+    enabled: true
+    callers:
+      - name: 시험시스템
+        key: test-key
+        addresses: []
+      # 열쇠 없이 주소로만 가리는 시스템. 사내 서버 대역과 개발자 PC 대역이다.
+      - name: 사내서버
+        addresses:
+          - 192.0.2.0/24
+          - 198.51.100.0/24
+      # 주소 목록을 채운 시스템 하나. 시험의 요청 주소는 127.0.0.1 이라 이 키로
+      # 부르면 늘 대역 밖이다 - 키는 맞는데 주소가 막힌 갈래(403)를 보는 자리다.
+      - name: 대역시스템
+        key: range-key
+        addresses: 203.0.113.0/24
+    admins:
+      - admin1

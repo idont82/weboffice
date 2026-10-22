@@ -1,0 +1,997 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <title>KCC Web Office</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <style>
+      /*
+        위는 메뉴바, 아래는 격자. 예전에는 메뉴바를 격자 위에 겹쳐 놓고 Univer 탭
+        줄에 왼쪽 여백을 줘서 자리를 비웠다. 탭 줄을 없애면서 겹칠 것이 사라져
+        평범한 두 칸으로 되돌린다 - 여백을 재서 맞추던 코드도 함께 없앴다.
+      */
+      html, body { margin: 0; height: 100%; }
+      body { display: flex; flex-direction: column; }
+
+      /*
+        파일 메뉴를 Univer 탭 줄(시작·수식·데이터)과 같은 라인에 놓는다.
+
+        Univer 헤더 안에 DOM 을 끼워 넣지 않고 위에 겹친다. 저쪽은 React 가
+        그리므로 자식을 밀어 넣으면 다시 그릴 때 사라진다. 겹친 만큼 탭 줄에
+        왼쪽 여백을 줘서 글자가 겹치지 않게 한다.
+      */
+      /*
+        도구 띠는 눈금자(1060)보다 위여야 한다. 여기서 층을 새로 여는 탓에
+        안쪽 메뉴가 아무리 높아도 이 값에 갇혀 자 뒤로 숨었다(2026-08-19 지적).
+      */
+      #toolbar {
+        position: relative; flex: none; height: 36px; z-index: 1150;
+        display: flex; align-items: center; gap: 2px; padding: 0 8px;
+        box-sizing: border-box; background: #fff;
+        border-bottom: 1px solid #e8ebed;
+        font: 14px sans-serif;
+      }
+      /* 상태 문구가 남은 자리를 다 밀어 사용자 표시를 오른쪽 끝에 붙인다. */
+      #status { margin-left: auto; color: #555; display: inline-flex;
+        align-items: center; gap: 6px; }
+      /* 일하는 중임을 알리는 도는 표시. 글만 바뀌면 눈에 안 띈다. */
+      .wo-spinner { width: 13px; height: 13px; border-radius: 50%;
+        border: 2px solid #c9d3cd; border-top-color: #2f6f4f;
+        animation: wo-spin 0.7s linear infinite; flex: none; }
+      @keyframes wo-spin { to { transform: rotate(360deg); } }
+      /* 파일을 올리는 동안 화면 가운데에 띄운다. 목록 화면에는 알림 줄이 없다. */
+      .wo-busy { position: fixed; inset: 0; z-index: 40; display: flex;
+        align-items: center; justify-content: center;
+        background: rgba(255, 255, 255, 0.55); }
+      .wo-busy-box { display: inline-flex; align-items: center; gap: 10px;
+        padding: 14px 20px; border-radius: 10px; background: #fff; color: #333;
+        box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18); font-size: 14px; }
+      .wo-busy .wo-spinner { width: 18px; height: 18px; border-width: 3px; }
+      @media (prefers-reduced-motion: reduce) {
+        .wo-spinner { animation-duration: 2.4s; }
+      }
+
+      /* 긴 알림 줄. 상단 줄이 아니라 그 아래에 따로 눕는다 - 제목이 가운데
+         절대 위치라 상단에 긴 글을 넣으면 겹친다. */
+      #notice {
+        display: flex; align-items: flex-start; gap: 8px;
+        padding: 8px 12px; font-size: 12px; line-height: 1.5; color: #4a4a4a;
+        background: #fff8e1; border-bottom: 1px solid #f0e0b0;
+      }
+      #notice[hidden] { display: none; }
+      #noticeText { flex: 1; }
+      #noticeClose {
+        flex: none; border: 0; background: none; cursor: pointer;
+        color: #7a7a7a; font-size: 12px; line-height: 1;
+      }
+      #noticeClose:hover { color: #333; }
+
+      /* 몇 명이 와 있는지. 누구인지는 눌러야 나온다. */
+      #presence { position: relative; margin-left: 12px; }
+      #presence[hidden] { display: none; }
+      #presenceCount {
+        font: inherit; font-size: 12px; line-height: 20px; padding: 0 10px;
+        border: 1px solid #d5dbe0; border-radius: 10px; background: #fff; cursor: pointer;
+      }
+      #presenceCount:hover { background: #f1f3f5; }
+      #presenceList {
+        position: absolute; top: 100%; right: 0; z-index: 40; margin: 4px 0 0; padding: 6px;
+        min-width: 13rem; list-style: none; background: #fff;
+        border: 1px solid #ddd; border-radius: 6px; box-shadow: 0 4px 14px rgba(0,0,0,.14);
+      }
+      #presenceList[hidden] { display: none; }
+      #presenceList li {
+        display: flex; align-items: center; gap: 8px;
+        padding: 5px 8px; font-size: 13px; white-space: nowrap;
+      }
+      /* 격자 위 테두리와 같은 색. 색만으로 누가 어디인지 잇는다. */
+      #presenceList .dot {
+        width: 10px; height: 10px; border-radius: 50%; flex: none;
+      }
+
+      /*
+        누구로 접속했는지. 상태 문구와 붙지 않게 구분선을 둔다 - 둘 다 회색
+        작은 글씨라 나란히 두면 한 문장으로 읽힌다.
+      */
+      #userBox { position: relative; }
+      #userBox[hidden] { display: none; }
+      #currentUser {
+        padding: 2px 10px; margin-left: 2px;
+        border: 0; border-left: 1px solid #ddd; background: none;
+        font: inherit; color: #333; white-space: nowrap; cursor: default;
+      }
+      #currentUser:empty { border-left: 0; padding-left: 0; }
+      /*
+        부서와 로그아웃은 손을 얹었을 때만 내린다. 늘 띄우면 줄이 길어 제목을
+        밀어낸다(2026-08-20 지적). 손을 얹는 것 말고 자판(탭)으로도 열려야 한다.
+      */
+      #userMenu {
+        position: absolute; right: 8px; top: 100%; z-index: 1300;
+        display: none; flex-direction: column; gap: 6px; align-items: flex-end;
+        padding: 8px 12px; background: #fff; white-space: nowrap;
+        border: 1px solid #e0e3e6; border-radius: 6px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, .12);
+      }
+      #userBox:hover #userMenu, #userBox:focus-within #userMenu { display: flex; }
+      #userDept { color: #555; }
+      #userDept:empty { display: none; }
+      #sourceLink { color: #777; font-size: 12px; text-decoration: none; }
+      #sourceLink:hover { color: #1a5fc8; text-decoration: underline; }
+
+      /*
+        오른쪽 기록 패널. 칸 수정 기록과 버전 기록이 같은 자리를 쓴다.
+        z-index 는 도구 띠(1150)보다 낮게 둔다 - 메뉴가 그 위로 펼쳐져야 한다.
+      */
+      #historyPanel {
+        position: fixed; right: 0; top: 82px; bottom: 0; width: 320px; z-index: 1100;
+        display: flex; flex-direction: column; overflow-y: auto;
+        background: #fff; border-left: 1px solid #e0e3e6;
+        box-shadow: -2px 0 8px rgba(0, 0, 0, .06);
+        padding: 12px 14px; box-sizing: border-box;
+      }
+      #historyPanel[hidden] { display: none; }
+      .history-head { display: flex; align-items: center; gap: 8px; }
+      .history-head h3 { flex: 1; margin: 0; font-size: 14px; color: #222; }
+      .history-refresh {
+        border: 0; background: none; font-size: 15px; line-height: 1;
+        color: #888; cursor: pointer; padding: 0 2px;
+      }
+      .history-refresh:hover { color: #1a5fc8; }
+      .history-close {
+        border: 0; background: none; font-size: 18px; line-height: 1;
+        color: #888; cursor: pointer; padding: 0 4px;
+      }
+      .history-close:hover { color: #333; }
+      .history-notice, .history-empty { color: #888; font-size: 12px; margin: 6px 0 10px; }
+      .history-list { list-style: none; margin: 0; padding: 0; }
+      .history-entry { padding: 8px 0; border-bottom: 1px solid #f0f2f4; }
+      .history-when { color: #888; font-size: 12px; margin-bottom: 3px; }
+      .history-values { color: #222; word-break: break-all; }
+      .history-before { color: #b23b3b; text-decoration: line-through; }
+      .history-arrow { color: #aaa; margin: 0 6px; }
+      .history-after { color: #1a5fc8; }
+      .history-open {
+        border: 0; background: none; padding: 0; font: inherit; color: #1a5fc8;
+        cursor: pointer; text-align: left;
+      }
+      .history-open:hover { text-decoration: underline; }
+      .history-changes {
+        margin: 6px 0 0 8px; padding-left: 8px; border-left: 2px solid #eceff2;
+        font-size: 12px; color: #555; max-height: 220px; overflow-y: auto;
+      }
+      .history-change { padding: 3px 0; word-break: break-all; }
+      .history-where { color: #888; margin-right: 6px; }
+
+      .history-restore {
+        margin-top: 6px; border: 1px solid #d0d5da; border-radius: 4px; background: #fff;
+        padding: 3px 10px; font: inherit; font-size: 12px; color: #1a5fc8; cursor: pointer;
+      }
+      .history-restore:hover:not(.history-restore-asking) {
+        background: #f2f6fd; border-color: #1a5fc8;
+      }
+      /* 물어보는 중. 되돌리기도 되돌릴 수 없는 일이라 눈에 띄게 둔다. */
+      .history-restore-asking,
+      .history-restore-asking:hover {
+        background: #b3261e; color: #fff; border-color: #8c1d18;
+      }
+
+      /* 복구 지점. 버전 줄과 한 목록에 섞이므로 배지로 갈라 보이게 한다. */
+      .history-entry.is-point { background: #fbfcfe; }
+      .point-badge {
+        display: inline-block; margin-right: 6px; padding: 1px 6px;
+        border: 1px solid #cfe0f7; border-radius: 999px;
+        background: #eaf2fd; color: #1a5fc8; font-size: 11px;
+      }
+      .history-entry.is-point .history-restore { color: #b3261e; border-color: #e3c9c9; }
+      .history-entry.is-point .history-restore:hover {
+        background: #fdf3f2; border-color: #b3261e;
+      }
+      .history-entry.is-point .history-open { margin-left: 6px; }
+      .point-take { display: flex; gap: 6px; margin: 2px 0 10px; }
+      .point-take input {
+        flex: 1; min-width: 0; font: inherit; font-size: 12px; padding: 4px 8px;
+        border: 1px solid #d0d5da; border-radius: 4px;
+      }
+      .point-take input:focus { outline: none; border-color: #1a5fc8; }
+      .point-take-button {
+        border: 1px solid #1a5fc8; border-radius: 4px; background: #1a5fc8;
+        padding: 4px 10px; font: inherit; font-size: 12px; color: #fff; cursor: pointer;
+      }
+      .point-take-button:hover { background: #164fa8; }
+
+      /* 휴지통. 되살리기 말고는 아무것도 못 하는 줄 목록이다. */
+      .trash-fold > summary {
+        cursor: pointer; font-size: 15px; font-weight: 600; color: #333;
+        margin: 18px 0 4px;
+      }
+      .trash-fold .trash-list { max-height: 340px; overflow-y: auto; }
+      .trash-list { list-style: none; margin: 0; padding: 0; }
+      .trash-list li {
+        display: flex; align-items: center; gap: 12px;
+        padding: 8px 12px; border-bottom: 1px solid #eef0f2;
+      }
+      /* 휴지통 비우기. 되돌릴 수 없는 일이라 붉게 두고, 물어보는 중에는 더 눈에
+         띄게 한다(삭제 단추와 같은 규칙). */
+      .trash-purge { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 10px; }
+      .trash-purge-button {
+        font: inherit; font-size: 12px; padding: 4px 10px; cursor: pointer;
+        border: 1px solid #e3c9c9; border-radius: 4px; background: #fff; color: #b3261e;
+      }
+      /* 물어보는 중에는 hover 를 따로 잡는다. 안 그러면 옅은 바탕이 흰 글자를
+         덮어 "지울까요?" 가 안 보인다(2026-09-03 지적). */
+      .trash-purge-button:hover:not(:disabled):not(.asking) {
+        background: #fdf3f2; border-color: #b3261e;
+      }
+      .trash-purge-button:disabled { color: #b9bec2; border-color: #e9ecee; cursor: default; }
+      .trash-purge-button.asking { background: #b3261e; color: #fff; border-color: #8c1d18; }
+      .trash-purge-button.asking:hover { background: #8c1d18; color: #fff; }
+      .trash-name { flex: 1; color: #333; }
+      .trash-when { color: #888; font-size: 12px; }
+      .trash-restore {
+        border: 1px solid #d0d5da; border-radius: 4px; background: #fff;
+        padding: 4px 10px; font: inherit; color: #1a5fc8; cursor: pointer;
+      }
+      .trash-restore:hover { background: #f2f6fd; border-color: #1a5fc8; }
+
+      /*
+        파일 메뉴·제목·공유를 한 덩어리로 묶는다. 탭 줄에 줄 왼쪽 여백을 이 덩어리
+        폭으로 재기 때문이다 - 따로 두면 제목이 길어질 때 "시작" 이 밑에 깔린다.
+      */
+      #toolbarLeft { display: flex; align-items: center; gap: 4px; }
+      #menuBar { display: flex; align-items: center; gap: 2px; }
+      #toolbarLeft[hidden] { display: none; }
+
+      /* 아이콘과 제목을 한 무리로 묶어 가운데 고정. 툴바가 flex 라 흐름에 두면
+         좌우 길이에 따라 흔들린다. */
+      #titleBox {
+        position: absolute; left: 50%; transform: translateX(-50%);
+        display: flex; align-items: center; gap: 6px;
+      }
+
+      .title {
+        font-weight: 600; padding: 2px 10px;
+        border: 1px solid transparent; border-radius: 4px;
+        /* 제목이 길수록 탭 줄이 오른쪽으로 밀린다. 18rem 이면 "시작 삽입 수식
+           데이터" 가 1280px 화면에서 남는다. 넘치면 말줄임한다. */
+        max-width: 22rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      }
+      /* 비어 있으면 "제목" 이라고 흐리게. 빈 칸이면 누를 수 있는지조차 모른다. */
+      .title:empty::before { content: attr(data-placeholder); color: #aaa; font-weight: 400; }
+      .title[hidden] { display: none; }
+      .title[contenteditable]:hover { border-color: #ddd; }
+      .title[contenteditable]:focus { border-color: #4c8bf5; outline: none; }
+      /*
+        제목에 마우스를 올리면 나오는 안내. 테두리만 옅게 뜨는 것으로는 눌러도
+        되는지 모른다(2026-08-07 지적).
+
+        쓰기 권한일 때만 나온다 - contenteditable 속성이 곧 그 조건이다. 고쳐 쓰는
+        중(:focus)에는 감춘다. 다 아는 이야기를 눈앞에 붙여 둘 이유가 없다.
+      */
+      #titleHint {
+        position: absolute; left: 50%; top: 32px; transform: translateX(-50%);
+        padding: 3px 9px; border-radius: 4px;
+        background: #2b3a31; color: #fff; font-size: 12px; white-space: nowrap;
+        box-shadow: 0 2px 8px rgba(0,0,0,.18);
+        opacity: 0; transition: opacity .12s; pointer-events: none;
+      }
+      #workbookTitle[contenteditable]:hover ~ #titleHint { opacity: 1; }
+      #workbookTitle[contenteditable]:focus ~ #titleHint { opacity: 0; }
+
+      /* 메뉴바. 홈·파일·삽입·수식·데이터가 한 줄에 선다. */
+      .menu-box { position: relative; }
+      .menu-title, #homeButton {
+        font: inherit; padding: 3px 10px; border: 1px solid transparent;
+        border-radius: 4px; background: none; cursor: pointer; line-height: 22px;
+        color: #222;
+      }
+      .menu-title:hover, #homeButton:hover { background: #f1f3f5; }
+      .menu-title[aria-expanded="true"] { background: #eaf4ee; color: #1b5c38; }
+      /* 지금 연 문서의 종류. 제목 왼쪽에 선다. */
+      #docKind { display: inline-flex; align-items: center; }
+      #docKind[hidden] { display: none; }
+      #docKind svg { width: 18px; height: 18px; display: block; }
+
+      /* 홈은 자리를 뜨는 것이라 나머지와 구분선을 둔다. */
+      #homeButton {
+        font-weight: 600; color: #1b5c38; margin-right: 4px;
+        display: inline-flex; align-items: center; gap: 6px;
+      }
+
+      /*
+        메뉴는 눈금자(1060)와 그 위 덮개(1075)보다 높아야 한다. 낮으면 펼친
+        메뉴가 자에 가려 반만 보인다(2026-08-19 지적).
+      */
+      .menu-list {
+        position: absolute; top: 100%; left: 0; z-index: 1200; margin-top: 2px;
+        min-width: 11rem; padding: 4px; background: #fff;
+        border: 1px solid #ddd; border-radius: 6px;
+        box-shadow: 0 4px 14px rgba(0,0,0,.14);
+        display: flex; flex-direction: column;
+      }
+      .menu-list[hidden] { display: none; }
+      .menu-list button {
+        font: inherit; text-align: left; white-space: nowrap;
+        display: flex; align-items: center; gap: 9px;
+        padding: 6px 10px; border: 0; border-radius: 4px;
+        background: none; cursor: pointer; color: #222;
+      }
+      /*
+        아이콘 자리. 아이콘이 없는 항목도 이 상자는 둔다 - 없는 것만 들여쓰기가
+        어긋나면 목록이 삐뚤어 보인다. 색은 글자보다 옅게 두어 글자를 먼저 읽게 한다.
+      */
+      .menu-icon {
+        flex: none; width: 16px; height: 16px; color: #6b7280;
+        display: inline-flex; align-items: center; justify-content: center;
+      }
+      .menu-list button:disabled .menu-icon { color: inherit; }
+      .menu-list button:hover:not(:disabled) { background: #f1f3f5; }
+      /* 못 쓰는 항목도 보인다. 사라지면 어디 갔는지 찾게 된다. */
+      .menu-list button:disabled { color: #b5b9bd; cursor: default; }
+      .menu-list button.menu-separated {
+        margin-top: 4px; border-top: 1px solid #eee; padding-top: 8px; border-radius: 0 0 4px 4px;
+      }
+      /* 지금 값인 항목. 줄 간격처럼 여럿 가운데 하나가 걸려 있는 자리다. */
+      .menu-list button.menu-checked { font-weight: 600; background: #eef6f0; }
+      .menu-list button.menu-checked::after { content: '✓'; margin-left: auto; color: #1b5e3a; }
+
+      /*
+        도구 띠에서 펼친 목록은 닫혀도 화면에서 사라지지 않는다. 하나를 펼친 채
+        옆 것을 누르면 앞엣것이 닫힌 채로 남아 둘이 겹쳐 보였다(2026-08-21 지적:
+        번호와 글머리가 같이 떴다).
+
+        닫힌 것을 감춘다. DOM 을 지우지는 않는다 - 지웠더니 도구 띠가 통째로
+        사라졌다(React 가 들고 있는 자리다). 상태 표시(data-state)는 Univer 가
+        쓰는 팝업 라이브러리(Radix)가 붙인다.
+      */
+      body > div > [data-state="closed"] { display: none !important; }
+
+      /* 시작 화면·로그인과 같은 초록 계열. 파랑은 Univer 기본 테마였다. */
+      #shareButton {
+        font: inherit; padding: 2px 12px; margin-left: 4px;
+        border: 1px solid #bcdcc9; border-radius: 4px;
+        background: #eaf4ee; color: #1b5c38; cursor: pointer;
+      }
+      #shareButton:hover { background: #dcecE3; }
+
+      /* 찾기 칸. 시작 화면 맨 위, 타일 바로 앞에 둔다. */
+      .doc-search { margin: 0 0 14px; }
+      .doc-search input {
+        width: 100%; max-width: 420px; font: inherit; padding: 7px 12px;
+        border: 1px solid #d3d9e0; border-radius: 6px; background: #fff;
+      }
+      .doc-search input:focus {
+        outline: none; border-color: #1b5c38; box-shadow: 0 0 0 2px #d6ebdd;
+      }
+      .doc-hit { border-bottom: 1px solid #f1f3f5; }
+      .doc-hit .doc-row { border-bottom: 0; }
+      /* 왜 이 문서가 나왔는지. 이름 아래에 한 줄로 붙인다. */
+      .doc-snippet {
+        margin: -4px 0 8px; padding-left: 34px;
+        color: #6c757d; font-size: 12px;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      }
+
+      #readOnlyBadge {
+        margin-left: 8px; padding: 2px 8px; border-radius: 10px;
+        background: #f1f3f5; color: #495057; font-size: 12px; white-space: nowrap;
+      }
+      #readOnlyBadge[hidden] { display: none; }
+
+
+      #fileButton, #exportButton {
+        font: inherit; padding: 2px 12px; border: 1px solid transparent;
+        border-radius: 4px; background: none; cursor: pointer; line-height: 24px;
+      }
+      #fileButton:hover, #exportButton:hover { background: #f1f3f5; }
+      #exportButton[hidden] { display: none; }
+
+      /*
+        Univer 의 탭 줄과 리본 줄은 기본이 가운데 정렬이다. 화면이 넓을수록 메뉴가
+        한가운데로 밀려 왼쪽 위부터 읽는 흐름과 어긋난다. 헤더 안으로 한정해
+        바꾼다 - 전역으로 걸면 대화상자 같은 다른 가운데 정렬까지 딸려 온다.
+      */
+      #app header .univer-justify-center { justify-content: flex-start !important; }
+
+      /*
+        Univer 의 탭 줄(홈·삽입·수식·데이터)을 감춘다. 그 자리는 우리 메뉴바가
+        대신하고, 아랫줄 리본은 늘 '홈' 것을 보인다 - 탭을 누를 때마다 자주 쓰는
+        서식 단추가 눈앞에서 사라지는 것을 없앤다.
+
+        이 상자에는 탭 줄 말고 headerMenuComponents 도 들어가는데 우리는 그것을
+        등록하지 않아 비어 있다. 통째로 감춰도 잃는 것이 없다.
+      */
+      #app [data-u-comp="ribbon-header-menu"] { display: none; }
+
+      /*
+        문서 목록. 그리드와 자리를 다투지 않게 툴바 아래를 통째로 쓴다.
+      */
+      #documentList {
+        position: absolute; top: 36px; left: 0; right: 0; bottom: 0; z-index: 10;
+        overflow: auto; padding: 24px 32px; background: #fff;
+        font: 14px sans-serif; color: #222;
+      }
+      #documentList[hidden] { display: none; }
+      #documentList .start-head { margin-bottom: 22px; }
+      #documentList .start-head h1 {
+        font-size: 26px; font-weight: 300; margin: 0; color: #217346;
+      }
+      #documentList .start-head p { margin: 4px 0 0; color: #777; }
+
+      #documentList h2 {
+        font-size: 13px; font-weight: 600; letter-spacing: .02em;
+        margin: 0; color: #666;
+      }
+      /* 묶음 제목과 보기 단추를 한 줄에. 단추가 아래로 내려가면 무엇에 걸리는지 흐려진다. */
+      #documentList .section-head {
+        display: flex; align-items: center; justify-content: space-between;
+        margin: 28px 0 10px;
+      }
+
+      /* 목록·격자 고르개. 지금 보기가 눌린 채로 보인다. */
+      #documentList .view-switch {
+        display: inline-flex; border: 1px solid #e3e6e8; border-radius: 6px;
+        overflow: hidden; background: #fff;
+      }
+      #documentList .view-switch button {
+        display: inline-flex; align-items: center; justify-content: center;
+        width: 30px; height: 26px; padding: 0; border: 0; cursor: pointer;
+        background: none; color: #8a9199;
+      }
+      #documentList .view-switch button:hover { background: #f1f3f5; color: #444; }
+      #documentList .view-switch button[aria-pressed="true"] {
+        background: #eaf4ee; color: #1b5c38;
+      }
+      #documentList .view-switch button + button { border-left: 1px solid #e3e6e8; }
+
+      /*
+        목록 보기. 네 칸을 같은 격자에 놓아 머리줄과 본문이 어긋나지 않게 한다.
+        지우기 칸은 늘 자리를 잡아 둔다 - 공유받은 문서에서만 비면 줄이 밀린다.
+      */
+      #documentList .doc-rows { border-top: 1px solid #eef0f1; }
+      #documentList .doc-head,
+      #documentList .doc-open {
+        display: grid; grid-template-columns: 1fr 14rem 8rem; gap: 12px;
+        align-items: center;
+      }
+      #documentList .doc-head {
+        grid-template-columns: 1fr 14rem 8rem 8.5rem;
+        padding: 8px 12px; font-size: 12px; color: #8a9199;
+        border-bottom: 1px solid #eef0f1;
+      }
+      #documentList .doc-row {
+        display: grid; grid-template-columns: 1fr 8.5rem; align-items: center;
+        border-bottom: 1px solid #f4f6f7;
+      }
+      #documentList .doc-row:hover { background: #f7faf8; }
+      #documentList .doc-open {
+        font: inherit; text-align: left; cursor: pointer;
+        padding: 9px 12px; border: 0; background: none; color: #222;
+        min-width: 0;
+      }
+      #documentList .doc-name {
+        display: flex; align-items: center; gap: 9px; min-width: 0;
+      }
+      #documentList .doc-label {
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      }
+      #documentList .doc-icon { flex: none; display: inline-flex; }
+      #documentList .doc-share,
+      #documentList .doc-when {
+        color: #888; font-size: 12px;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      }
+      #documentList .doc-tail {
+        padding-right: 12px; display: flex; align-items: center;
+        justify-content: flex-end; gap: 2px;
+      }
+      /* 삭제는 마우스를 올려야 보인다. 늘 보이면 지우는 일이 앞자리에 온다. */
+      #documentList .doc-tail .card-delete { position: static; opacity: 0; }
+      #documentList .doc-row:hover .doc-tail .card-delete,
+      #documentList .doc-tail .card-delete:focus,
+      #documentList .doc-tail .card-delete.asking { opacity: 1; }
+      #documentList .empty { color: #aaa; margin: 4px 0 0; }
+
+      /* ---------------------------------------------------------------- 별표·색 딱지 */
+
+      /* 거르개 칩. 지금 무엇으로 거르고 있는지 늘 보인다 - 감춰 두면 파일이
+         왜 안 보이는지 알 수 없다. */
+      #documentList .mark-chips {
+        display: flex; flex-wrap: wrap; gap: 6px; margin: 18px 0 10px;
+      }
+      #documentList .mark-chip {
+        font: inherit; font-size: 12px; padding: 4px 11px 4px 8px; cursor: pointer;
+        display: inline-flex; align-items: center; gap: 6px;
+        border: 1px solid #e3e6e8; border-radius: 999px; background: #fff; color: #555;
+      }
+      #documentList .mark-chip:hover { border-color: #b9c0c6; }
+      #documentList .mark-chip[aria-pressed="true"] {
+        border-color: #217346; background: #eaf5ee; color: #1b5c39; font-weight: 600;
+      }
+      #documentList .mark-chip.is-star[aria-pressed="true"] { color: #b8860b; }
+      #documentList .chip-star { display: inline-flex; color: #d9a406; }
+      #documentList .mark-chip.is-rename { color: #7a8288; padding-left: 11px; }
+      .color-dot {
+        width: 10px; height: 10px; border-radius: 50%; flex: none;
+        border: 1px solid rgba(0, 0, 0, .16);
+      }
+
+      /* 줄과 카드에 붙는 별·색 단추. 마우스를 올리기 전에는 흐리게 둔다 -
+         늘 진하면 이름보다 표시가 먼저 눈에 든다. */
+      #documentList .mark-star,
+      #documentList .mark-color {
+        font: inherit; padding: 3px; line-height: 0; cursor: pointer;
+        border: 0; background: none; border-radius: 4px; color: #c3c8cc;
+      }
+      #documentList .mark-star[aria-pressed="true"] { color: #f0b429; }
+      #documentList .mark-star:hover,
+      #documentList .mark-color:hover { background: #eef2f4; }
+      #documentList .mark-color::before {
+        content: ''; display: block; width: 13px; height: 13px; border-radius: 50%;
+        background: var(--dot, transparent); border: 1.5px solid #c3c8cc;
+      }
+      #documentList .mark-color[data-color]:not([data-color=""])::before {
+        border-color: rgba(0, 0, 0, .16);
+      }
+      #documentList .doc-row .mark-star[aria-pressed="false"],
+      #documentList .doc-row .mark-color[data-color=""] { opacity: 0; }
+      #documentList .doc-row:hover .mark-star,
+      #documentList .doc-row:hover .mark-color,
+      #documentList .mark-star:focus,
+      #documentList .mark-color:focus { opacity: 1; }
+      /* 카드에서는 아래 오른쪽 - 날짜 반대쪽 빈자리다. 위쪽에 두면 이름과 겹친다
+         (2026-08-31 지적). 위 오른쪽은 삭제 단추 자리다. */
+      #documentList .card-marks {
+        position: absolute; bottom: 6px; right: 8px; display: flex; gap: 2px;
+      }
+      #documentList .card-marks .mark-star[aria-pressed="false"],
+      #documentList .card-marks .mark-color[data-color=""] { opacity: 0; }
+      #documentList .card-box:hover .card-marks .mark-star,
+      #documentList .card-box:hover .card-marks .mark-color,
+      #documentList .card-marks .mark-star:focus,
+      #documentList .card-marks .mark-color:focus { opacity: 1; }
+
+      /* 색 고르개. 몸통에 붙여 띄운다 - 줄 안에 두면 넘침 감추기에 잘린다. */
+      .color-menu {
+        position: fixed; z-index: 1400; min-width: 9.5rem;
+        display: flex; flex-direction: column; padding: 4px;
+        background: #fff; border: 1px solid #dfe3e6; border-radius: 8px;
+        box-shadow: 0 6px 20px rgba(0, 0, 0, .14);
+      }
+      .color-item {
+        font: inherit; font-size: 13px; text-align: left; cursor: pointer;
+        display: flex; align-items: center; gap: 8px;
+        padding: 6px 8px; border: 0; border-radius: 5px; background: none; color: #333;
+      }
+      .color-item:hover { background: #f1f4f6; }
+      .color-item[aria-checked="true"] { font-weight: 600; background: #eaf5ee; }
+      .color-item[data-color=""] .color-dot { border-style: dashed; }
+      .color-menu.is-rename { min-width: 12rem; }
+      .color-rename { display: flex; align-items: center; gap: 8px; padding: 3px 6px; }
+      .color-rename input {
+        font: inherit; font-size: 13px; width: 100%; padding: 4px 7px;
+        border: 1px solid #dfe3e6; border-radius: 5px;
+      }
+      .color-rename input:focus { outline: none; border-color: #217346; }
+
+      /* 발표 자료 보기. 고쳐 쓰지 못하고 보기만 한다. */
+      #slideView { padding: 16px 24px 40px; overflow: auto; background: #f6f7f8; }
+      #slideView .slide-page {
+        position: relative; margin: 0 auto 20px; background: #fff;
+        border: 1px solid #e3e6e8; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+        overflow: hidden;
+      }
+      /* 슬라이드 안 조각은 원본 자리 그대로 앉힌다. 흐름에 두면 자리가 무너진다. */
+      /* 색을 칠한 도형. 글자·그림과 같은 자리 셈을 쓰되 맨 밑에 깔린다. */
+      #slideView .slide-shape { position: absolute; }
+      #slideView .slide-text, #slideView .slide-table, #slideView .slide-image {
+        position: absolute;
+      }
+      #slideView .slide-text { white-space: pre-wrap; font-family: Aptos, Calibri, "Malgun Gothic", system-ui, sans-serif; line-height: 1.25; }
+      #slideView .slide-image { object-fit: contain; }
+      #slideView .slide-table { border-collapse: collapse; font-size: 12px; }
+      #slideView .slide-table td { border: 1px solid #b6bcc1; padding: 2px 6px; }
+      #slideView .slide-no {
+        color: #888; font-size: 12px; margin: 0 auto 4px; text-align: right;
+      }
+      #slideView .slide-notes {
+        color: #555; font-size: 12px; margin: 0 auto 20px; white-space: pre-wrap;
+        border-left: 3px solid #d7dbde; padding-left: 10px;
+      }
+
+      /* 종류 거르개. 시트와 글 문서가 한 목록에 섞여 있다. */
+      #documentList .list-tools { display: flex; align-items: center; gap: 12px; }
+      #documentList .kind-filter { display: inline-flex; gap: 4px; }
+      #documentList .kind-filter button {
+        font: inherit; font-size: 13px; padding: 4px 12px 4px 8px; cursor: pointer;
+        display: inline-flex; align-items: center; gap: 6px;
+        border: 1px solid #e3e6e8; border-radius: 999px; background: #fff; color: #555;
+      }
+      #documentList .kind-mark { display: inline-flex; }
+      #documentList .kind-mark svg { width: 14px; height: 14px; display: block; }
+      #documentList .kind-filter button:hover { border-color: #217346; color: #217346; }
+      #documentList .kind-filter button[aria-pressed="true"] {
+        border-color: #217346; background: #eaf5ee; color: #1b5c39; font-weight: 600;
+      }
+
+      /* 시작 타일. 문서가 없는 사람이 처음 보는 것이라 크게 둔다. */
+      /* 아래 카드 칸과 같은 격자를 쓴다. 따로 흐르게 두면 줄이 어긋나 보인다
+         (2026-08-13 지적: 시작 타일과 카드 줄을 맞춰라). */
+      #documentList .start-tiles {
+        display: grid; gap: 14px;
+        grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+      }
+      #documentList .tile {
+        font: inherit; text-align: left; cursor: pointer;
+        display: grid; grid-template-columns: 44px 1fr; grid-template-rows: auto auto;
+        column-gap: 12px; align-items: center;
+        padding: 14px 16px;
+        border: 1px solid #e3e6e8; border-radius: 6px; background: #fff;
+      }
+      #documentList .tile:hover { border-color: #217346; background: #f4faf6; }
+      /* 아이콘이 제 색과 모서리를 들고 있다. 뒤에 색판을 한 겹 더 깔지 않는다. */
+      #documentList .tile-mark {
+        grid-row: 1 / 3; display: grid; place-items: center;
+        width: 34px; height: 34px;
+      }
+      #documentList .tile-mark svg { width: 34px; height: 34px; display: block; }
+      #documentList .tile-name { font-weight: 600; }
+      #documentList .tile-note { color: #888; font-size: 12px; }
+
+      /*
+        문서 카드. 폭을 칸이 정하고 카드는 그 폭을 그대로 쓴다 - 카드가 제 내용
+        길이로 넓어지면 줄마다 폭이 달라 보인다(2026-08-11 지적).
+      */
+      #documentList .cards {
+        display: grid; gap: 14px;
+        grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+      }
+      /* 카드와 삭제 버튼을 겹쳐 둔다. 삭제는 마우스를 올려야 보인다. */
+      #documentList .card-box { position: relative; }
+      #documentList .card-delete {
+        position: absolute; top: 6px; right: 6px;
+        font: inherit; font-size: 12px; padding: 2px 8px;
+        border: 1px solid #e3c9c9; border-radius: 4px;
+        background: #fff; color: #b3261e; cursor: pointer;
+        opacity: 0; transition: opacity .12s;
+      }
+      #documentList .card-box:hover .card-delete,
+      #documentList .card-delete:focus,
+      #documentList .card-delete.asking { opacity: 1; }
+      /* 물어보는 중에는 눈에 띄게. 실수로 두 번 누르는 일을 줄인다. */
+      #documentList .card-delete.asking { background: #b3261e; color: #fff; border-color: #8c1d18; }
+
+      #documentList .card {
+        font: inherit; text-align: left; cursor: pointer;
+        display: flex; flex-direction: column; gap: 0;
+        width: 100%; box-sizing: border-box; padding: 0; overflow: hidden;
+        border: 1px solid #e3e6e8; border-radius: 8px; background: #fff;
+      }
+      #documentList .card:hover { border-color: #217346; box-shadow: 0 2px 10px rgba(0,0,0,.08); }
+
+      /* 제목 줄. 첫 글자 표식과 이름. */
+      #documentList .card-head {
+        display: flex; align-items: center; gap: 8px;
+        padding: 10px 12px; min-width: 0;
+      }
+      /* 아이콘이 제 색과 모서리를 들고 있다. 뒤에 색판을 깔지 않는다. */
+      #documentList .card-thumb {
+        flex: none; display: grid; place-items: center; width: 18px; height: 18px;
+      }
+      #documentList .card-thumb svg { width: 18px; height: 18px; display: block; }
+      #documentList .card-name {
+        font-weight: 600; min-width: 0;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      }
+
+      /*
+        미리보기. 실제 셀 값을 작은 표로 그린다. 높이를 못박아 카드 키를 맞춘다 -
+        내용이 적은 문서만 납작하면 격자가 들쭉날쭉해진다.
+      */
+      #documentList .card-preview,
+      #documentList .card-blank {
+        /*
+          키를 못박는다. 안이 넘치면 잘라 낸다 - 내용이 많은 문서만 길어지면 격자가
+          들쭉날쭉해진다. 표에 직접 주면 안 된다: table 은 height 를 최소값으로만
+          본다(2026-08-11 실측: 109·116·139px 로 갈렸다).
+        */
+        height: 108px; box-sizing: border-box; overflow: hidden;
+        border-top: 1px solid #eef0f1; background: #fbfcfc;
+      }
+      #documentList .card-preview table {
+        width: 100%; border-collapse: collapse; table-layout: fixed;
+        font-size: 11px; color: #555;
+      }
+      #documentList .card-preview td {
+        border: 1px solid #eceff0; padding: 2px 5px; height: 18px;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        max-width: 0;
+      }
+      /* 내용이 없는 문서. 표 대신 첫 글자를 크게 둔다. */
+      #documentList .card-blank {
+        display: grid; place-items: center;
+        color: #cfd8d3; font-size: 40px; font-weight: 300;
+      }
+
+      #documentList .card-note,
+      #documentList .card-when {
+        padding: 0 12px; color: #888; font-size: 12px;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      }
+      #documentList .card-note { padding-top: 9px; min-height: 1em; }
+      /* 오른쪽 끝은 별·색 단추 자리다. 날짜가 길어져도 그 밑으로 들어가지 않게
+         비워 둔다. */
+      #documentList .card-when {
+        padding-bottom: 10px; padding-right: 3.4rem; color: #aaa;
+      }
+
+      /* 준비 중인 종류. 눌리지 않는다는 것이 보여야 눌러 보지 않는다. */
+      #documentList .tile:disabled {
+        cursor: default; background: #fafbfc; color: #aaa;
+      }
+      #documentList .tile:disabled:hover { border-color: #e3e6e8; background: #fafbfc; }
+      /* 못 쓰는 종류는 아이콘도 힘을 뺀다. 색판을 씌우지 않는다 - 아이콘이
+         제 색을 들고 있다. */
+      #documentList .tile:disabled .tile-mark { opacity: 0.65; }
+      #documentList .tile:disabled .tile-name { color: #999; }
+
+      /* 공유 대화상자. <dialog> 라 Esc 닫기와 포커스 가둠은 브라우저가 해 준다. */
+      #shareDialog {
+        width: 26rem; padding: 20px; border: 0; border-radius: 8px;
+        box-shadow: 0 8px 32px rgba(0,0,0,.2); font: 14px sans-serif; color: #222;
+      }
+      #shareDialog::backdrop { background: rgba(0,0,0,.3); }
+      #shareDialog ul { list-style: none; margin: 8px 0; padding: 0; }
+      #shareDialog li {
+        display: flex; align-items: center; gap: 8px; padding: 5px 0;
+      }
+      #shareDialog li span:first-child { flex: 1; }
+      #shareDialog li .note { color: #777; }
+      #shareDialog input[type="search"], #shareDialog input[type="text"] {
+        font: inherit; width: 100%; padding: 6px 8px; box-sizing: border-box;
+        border: 1px solid #ddd; border-radius: 4px;
+      }
+      #shareDialog button {
+        font: inherit; padding: 3px 10px; border: 1px solid #ddd;
+        border-radius: 4px; background: #f6f8fa; cursor: pointer;
+      }
+      #shareDialog .share-public {
+        margin-top: 16px; padding-top: 14px; border-top: 1px solid #eee;
+        display: flex; flex-direction: column; gap: 8px; align-items: flex-start;
+      }
+      #shareDialog .share-public label {
+        display: flex; align-items: center; gap: 8px;
+      }
+      #shareDialog .share-close { align-self: flex-end; margin-top: 16px; }
+      #shareDialog .share-body { display: flex; flex-direction: column; }
+
+      /*
+        우측 하단 확대 조절. 손잡이가 흰 원이라 흰 바탕에 묻혀 어디 있는지 안 보인다
+        (2026-08-06 지적). 크기는 그대로 두고 색만 준다.
+
+        클래스는 유틸리티 이름이라 부분 일치로 짚는다. univer-rounded-full 은 손잡이,
+        univer-rounded-2xl 은 레일이다. 판올림에 이름이 바뀌면 색이 원래대로 돌아갈
+        뿐 화면이 깨지지는 않는다.
+      */
+      #app footer section:last-of-type { color: #333; }
+      #app footer section:last-of-type button { color: #333; }
+      #app footer section:last-of-type div[class*="rounded-2xl"] { background: #aeb6c2; }
+      #app footer section:last-of-type button[class*="rounded-full"] {
+        background: #217346; border-color: #14532d;
+      }
+      /* 글 문서는 파란 계열이다(2026-08-19 요청). */
+      body.wo-doc #app footer section:last-of-type button[class*="rounded-full"] {
+        background: #1a5fc8; border-color: #103f7c;
+      }
+
+      /*
+        글꼴 이름 칸이 너무 넓다(2026-08-19 지적). Univer 기본은 130px 라 옆 칸
+        (글꼴 크기·서식 58px)보다 두 배 넘게 벌어져 오른쪽 단추들이 밀린다.
+        구글 문서와 비슷한 100px 로 줄인다 - 이름이 길면 말줄임으로 끊긴다.
+      */
+      #app [data-u-command$="font-family"],
+      #app [data-u-command$="fontfamily"] {
+        width: 100px;
+      }
+
+      /*
+        배경색 버튼에 지금 색을 밑줄로 보인다. Univer 는 글자색 아이콘만 고른 색으로
+        칠하고, 배경색 아이콘에는 그 자리가 없다(2026-08-06 지적).
+
+        아이콘 클래스로 짚는다. 유틸리티 클래스는 판올림에 바뀌지만 아이콘 이름은
+        아이콘이 바뀌어야 바뀐다 - 그때는 줄이 안 보일 뿐 화면이 깨지지 않는다.
+      */
+      #app .univer-toolbar-button-selector-main:has(.univerjs-icon-paint-bucket-double-icon) {
+        position: relative;
+      }
+      #app .univer-toolbar-button-selector-main:has(.univerjs-icon-paint-bucket-double-icon)::after {
+        content: ''; position: absolute; left: 2px; right: 2px; bottom: 0; height: 3px;
+        border-radius: 2px; background: var(--wo-fill-color, transparent);
+      }
+
+      /*
+        셀을 편집할 때 선택 테두리가 왼쪽·위만 얇아 보인다(2026-08-07 지적).
+
+        테두리는 셀 경계에 걸쳐 그려지고(굵기 2 -> 안쪽 1, 바깥쪽 1), 편집기는 셀
+        상자에 꼭 맞게 놓인다. 그래서 편집기 흰 바탕이 왼쪽·위 테두리의 진한 가운데
+        줄까지 덮고, 오른쪽·아래는 그대로 남는다. 실측(문서 244, G7): 셀 상자가
+        x 430..494 인데 왼쪽 테두리는 429·430·431 에 걸려 있어 430·431 이 가리고
+        429(옅은 반 픽셀)만 남았다. 오른쪽은 494·495 가 온전히 보인다.
+
+        편집기 왼쪽·위를 1픽셀(테두리 굵기의 절반) 잘라 가려진 쪽을 되살린다.
+        오른쪽·아래는 원래 덮지 않으므로 두 픽셀 다 남아 좌우가 맞는다. 잘리는 것은
+        흰 여백이다 - 글자는 셀 안쪽 여백 뒤에서 시작한다.
+
+        인라인 left 가 붙은 상자가 셀 편집기 하나뿐이라 그것으로 짚는다. 수식 입력줄
+        편집기도 같은 캔버스 id 를 쓰지만 그쪽 상자에는 left 가 없다.
+      */
+      #app div[style*="left"]:has(> div #univer-doc-main-canvas) {
+        clip-path: inset(1px 0 0 1px);
+      }
+
+      /*
+        시트 탭. 지금 보는 시트가 바탕과 똑같은 흰색이라 어느 것을 보고 있는지
+        한눈에 안 들어왔다(2026-08-18 지적).
+
+        엑셀처럼 탭 줄을 회색으로 깔고, 보고 있는 탭만 흰 종이로 띄운 뒤 아래에
+        초록 줄을 긋는다. aria-selected 로 짚는다 - 유틸리티 클래스(univer-bg-white
+        따위)는 판올림마다 바뀌지만 이 속성은 탭의 뜻 그 자체다.
+      */
+      #app footer, #app footer section { background: #e8ebe9; }
+      #app [data-u-comp="slide-tab-item"] {
+        color: #5b6560; background: transparent; border-radius: 5px 5px 0 0;
+      }
+      #app [data-u-comp="slide-tab-item"]:hover { background: #dae0dc; color: #1b1c1f; }
+      #app [data-u-comp="slide-tab-item"][aria-selected="true"] {
+        background: #fff; color: #046c4e; font-weight: 700;
+        box-shadow: inset 0 -3px 0 0 #046c4e, 0 -1px 3px rgba(0, 0, 0, 0.15);
+      }
+
+      /*
+        행 높이·열 너비를 끄는 동안 붙는 눈금. 포인터를 따라다니므로 클릭을
+        가로채면 안 된다.
+      */
+      #sizeHint {
+        position: fixed; z-index: 50; pointer-events: none;
+        padding: 2px 7px; border-radius: 3px;
+        background: #2b3a31; color: #fff; font: 12px sans-serif; white-space: nowrap;
+      }
+      #sizeHint[hidden] { display: none; }
+
+      #app { height: 100%; }
+      #app[hidden] { display: none; }
+
+      /*
+        눈금자. 편집 캔버스 위에 겹쳐 띄운다 - 리본이 캔버스 안(Univer)에 있어
+        문서 흐름에 두면 리본 위로 올라간다(2026-08-11 실측). 자리는 캔버스
+        좌표를 따라 매 프레임 맞춘다.
+      */
+      /* Univer 캔버스가 z-index 8 이라 그보다 위여야 보인다(2026-08-11 실측). */
+      /*
+        마우스를 통과시킨다. 지금 눈금자는 읽는 자라 누를 일이 없는데, 편집기 위에
+        떠 있으면 툴바를 누른 뒤 포커스가 돌아오지 못해 글자가 아예 입력되지 않는다
+        (2026-08-11 실측: 눈금자를 감추면 곧바로 입력됐다).
+      */
+      /*
+        글 문서는 파란 계열을 쓴다. 초록은 시트 몫이다(2026-08-19 요청).
+        화면(Univer)이 쓰는 강조색 변수만 문서 화면에서 갈아 끼운다 - 확대
+        슬라이더·단추 같은 것이 함께 파래진다.
+      */
+      body.wo-doc {
+        --univer-primary-50: #eef4ff;
+        --univer-primary-100: #dbe7ff;
+        --univer-primary-200: #bcd3ff;
+        --univer-primary-300: #8fb6ff;
+        --univer-primary-400: #5b91f5;
+        --univer-primary-500: #2f74e0;
+        --univer-primary-600: #1a5fc8;
+        --univer-primary-700: #14509f;
+        --univer-primary-800: #103f7c;
+        --univer-primary-900: #0c2f5c;
+      }
+
+      /*
+        눈금자 판은 화면에 뜨는 것들(univer-popup, z-index 1070) 바로 아래에
+        둔다. 위로 올렸더니 단추 설명 글이 자 뒤로 숨었다(2026-08-19 지적).
+        대신 손잡이만 그보다 위에 둔다 - 잡히기는 해야 한다.
+      */
+      #rulerH, #rulerV {
+        position: fixed; z-index: 1060; background: #f6f7f8; pointer-events: none;
+      }
+      #rulerH { height: 20px; border-bottom: 1px solid #e3e6e8; }
+      #rulerV { width: 20px; border-right: 1px solid #e3e6e8; }
+      #rulerH[hidden], #rulerV[hidden] { display: none; }
+    </style>
+  </head>
+  <body>
+    <div id="toolbar">
+      <div id="toolbarLeft">
+        <!-- 문서를 닫고 시작 화면으로. 메뉴가 아니라 바로 간다 - 한 가지 일만 한다. -->
+        <button id="homeButton" type="button">홈</button>
+        <!--
+          메뉴는 문서 종류에 따라 통째로 갈아 끼운다. 그때 이 상자만 비우므로
+          홈 단추는 밖에 둔다 - 같이 두면 함께 지워진다(2026-08-11 실측).
+        -->
+        <div id="menuBar"></div>
+      </div>
+
+      <!-- 제목 무리는 가운데. 툴바 흐름에서 빼내 절대 위치로 둔다 - 흐름에 두면
+           좌우 내용 길이에 따라 가운데가 흔들린다. 아이콘도 이 무리에 넣어야
+           제목과 함께 가운데를 잡는다. -->
+      <div id="titleBox">
+        <!-- 지금 무엇을 열었는지. 누를 수 없다 - 종류를 말하는 표시다. -->
+        <span id="docKind" hidden></span>
+        <span id="workbookTitle" class="title" data-placeholder="제목"></span>
+        <!-- 제목이 눌러서 바꾸는 것이라는 안내. 제목 상자는 넘침을 잘라 말줄임하므로
+             그 안에 두면 함께 잘린다. 형제로 두고 CSS 가 제목 hover 에 반응한다. -->
+        <span id="titleHint" aria-hidden="true">눌러서 제목 바꾸기</span>
+      </div>
+
+      <span id="status" role="status"></span>
+
+      <!-- 공유는 오른쪽 끝 무리에 둔다. 문서에 사람을 붙이는 일이라 메뉴가 아니라
+           늘 보이는 단추로 남긴다. -->
+      <button id="shareButton" type="button" hidden>공유</button>
+      <!-- 열람 권한일 때만 보인다. 서버는 저장을 막지만 화면이 그대로면
+           사용자는 자기가 쓴 것이 왜 사라졌는지 모른다(2026-08-07 실측). -->
+      <span id="readOnlyBadge" hidden>읽기 전용</span>
+
+      <!-- 누가 와 있는지. 이름표는 격자 위에 있으니 여기서는 인원만 센다. -->
+      <div id="presence" hidden>
+        <button id="presenceCount" type="button"
+                aria-haspopup="true" aria-expanded="false" aria-controls="presenceList"></button>
+        <ul id="presenceList" hidden></ul>
+      </div>
+      <div id="userBox" hidden>
+        <button id="currentUser" type="button" aria-haspopup="true"
+                aria-controls="userMenu"></button>
+        <div id="userMenu">
+          <span id="userDept"></span>
+          <!-- AGPL 13조. 망으로 서비스하는 판은 쓰는 사람에게 소스를 얻는 길을
+               알려 줘야 한다. README 로는 모자라다 - 돌아가는 서비스에 있어야
+               한다. 이름에 손을 얹으면 나오는 자리라 화면을 어지럽히지 않는다. -->
+          <a id="sourceLink" href="https://github.com/idont82/weboffice"
+             target="_blank" rel="noopener">소스 (AGPL-3.0)</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- 파일 선택창은 메뉴의 "열기…" 가 연다. 입력 요소 자체는 보이지 않는다. -->
+    <input type="file" id="fileInput" accept=".xlsx" hidden />
+    <!-- 글 문서용. 확장자를 나눠 두면 고르는 창에 엉뚱한 파일이 안 뜬다. -->
+    <input type="file" id="docInput" accept=".docx,.hwp,.hwpx" hidden />
+    <!-- 발표 자료는 보기만 한다. 고쳐 쓰는 화면이 없다(2026-08-13 결정). -->
+    <input type="file" id="slideInput" accept=".pptx" hidden />
+    <!--
+      읽기 전용으로 잠깐 보는 길. 형식을 가리지 않는다 - 뷰어가 넷을 다 연다.
+      파일함에 남기지 않으므로 고쳐 쓸 생각이 없는 파일은 이쪽이 빠르다.
+    -->
+    <input type="file" id="viewInput" accept=".xlsx,.docx,.hwp,.hwpx,.pptx" hidden />
+
+    <!-- ?workbookSeq= 없이 들어오면 그리드 대신 이것이 뜬다. -->
+    <div id="documentList" hidden></div>
+    <!-- 발표 자료 보기. 목록과 편집 화면 옆에 나란히 둔다. -->
+    <div id="slideView" hidden></div>
+
+    <!-- 공유 대화상자. 내용은 열 때 shareDialog.ts 가 채운다. -->
+    <dialog id="shareDialog"></dialog>
+
+    <!-- 긴 알림. 상단 줄에 넣으면 가운데 제목을 덮는다(한글 가져오기에서 겪었다). -->
+    <div id="notice" hidden>
+      <span id="noticeText"></span>
+      <button id="noticeClose" type="button" aria-label="알림 닫기">✕</button>
+    </div>
+
+    <!--
+      기본이 숨김이다. 문서를 열 때만 보인다 - 처음부터 보이면 목록 조회가 끝나기
+      전까지 빈 그리드가 번쩍이고, 사용자는 시트가 열린 줄 안다(2026-08-06 지적).
+    -->
+    <!--
+      눈금자. 글 문서에서만 보인다. 종이 문서를 만드는 사람은 "여백이 얼마인가",
+      "여기가 몇 센티인가" 를 늘 본다 - 인쇄해서 결재를 올리는 문서라면 더 그렇다.
+    -->
+    <canvas id="rulerH" hidden></canvas>
+    <canvas id="rulerV" hidden></canvas>
+    <div id="app" hidden></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

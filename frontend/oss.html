@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>오픈소스 현황 — KCC Web Office</title>
+    <!--
+      관리자만 들어온다. 어떤 라이브러리를 어느 버전으로 쓰는지는 공격면을 그대로
+      알려 주는 정보라 아무에게나 열 것이 아니다 - 관문은 서버가 잡는다.
+    -->
+    <style>
+      :root { --line: #e3e6e8; --ink: #24292f; --dim: #6b7580; --blue: #1a5fc8; }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; padding: 40px 24px 80px; color: var(--ink);
+        font-family: system-ui, "Malgun Gothic", sans-serif; line-height: 1.6;
+      }
+      main { max-width: 900px; margin: 0 auto; }
+      h1 { font-size: 22px; margin: 0 0 4px; }
+      .lead { color: var(--dim); margin: 0 0 24px; font-size: 13px; }
+      .lead a { color: var(--blue); }
+
+      .oss-summary {
+        display: flex; flex-wrap: wrap; gap: 24px; padding: 14px 16px;
+        border: 1px solid var(--line); border-radius: 8px; margin-bottom: 20px;
+      }
+      .oss-stat { display: flex; flex-direction: column; gap: 2px; }
+      .oss-stat-wide { flex-basis: 100%; }
+      .oss-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+      .oss-chip {
+        font-size: 12px; color: #3a4450; background: #f2f4f7;
+        border: 1px solid var(--line); border-radius: 11px; padding: 1px 9px;
+      }
+      .oss-stat-name { color: var(--dim); font-size: 12px; }
+      .oss-stat strong { font-size: 17px; font-weight: 600; }
+
+      .oss-notice { margin-bottom: 24px; }
+      .oss-notice button {
+        border: 1px solid #d0d5da; background: #fff; border-radius: 4px;
+        padding: 5px 12px; font: inherit; cursor: pointer;
+      }
+      .oss-notice button:hover { border-color: var(--blue); color: var(--blue); }
+      .oss-notice button:disabled { color: var(--dim); cursor: default; }
+      .oss-notice pre {
+        margin: 10px 0 0; padding: 14px 16px; background: #f7f8fa;
+        border: 1px solid var(--line); border-radius: 6px;
+        font-family: Consolas, monospace; font-size: 12px; line-height: 1.7;
+        max-height: 360px; overflow: auto; white-space: pre-wrap;
+      }
+
+      .oss-group { margin-bottom: 28px; }
+      .oss-group h2 { font-size: 15px; margin: 0 0 2px; }
+      .oss-hint { color: var(--dim); font-size: 12px; margin: 0 0 10px; }
+
+      .oss-row {
+        padding: 10px 0; border-top: 1px solid #f0f2f4;
+        display: grid; grid-template-columns: 1fr 48px; gap: 2px 12px;
+      }
+      .oss-head {
+        grid-column: 1; display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px;
+      }
+      .oss-head strong { font-size: 14px; font-weight: 600; }
+      .oss-version { color: var(--dim); font-family: Consolas, monospace; font-size: 12px; }
+      .oss-coords {
+        color: var(--dim); font-size: 11px; border: 1px solid var(--line);
+        border-radius: 10px; padding: 0 7px;
+      }
+      .oss-license {
+        font-size: 12px; color: #1f5c3d; background: #eaf6ef;
+        border-radius: 3px; padding: 1px 7px;
+      }
+      .oss-head a { font-size: 12px; color: var(--blue); }
+      .oss-what { grid-column: 1; font-size: 13px; color: #4a5560; }
+      .oss-where {
+        grid-column: 2; grid-row: 1 / span 2; color: var(--dim); font-size: 12px;
+        text-align: right;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>오픈소스 현황</h1>
+      <p class="lead">
+        pom.xml 과 package.json 에 적힌 것을 손으로 정리한 목록이다. 적지 않고 라이브러리를
+        더하면 빌드가 깨진다 — 표류 시험이 선언과 목록을 맞춰 본다.
+        <a href="/admin">관리자 첫 화면</a>
+      </p>
+      <div id="ossRoot"></div>
+    </main>
+    <script type="module" src="/src/ossMain.ts"></script>
+  </body>
+</html>

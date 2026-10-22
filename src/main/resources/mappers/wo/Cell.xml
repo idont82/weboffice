@@ -1,0 +1,142 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="weboffice.sheet.CellMapper">
+
+    <select id="selectCellsInRange" resultType="weboffice.sheet.CellRow">
+        SELECT ROW_NO, COLUMN_NO, VALUE_TYPE, TEXT_VALUE, NUMBER_VALUE,
+               DATETIME_VALUE, BOOLEAN_YN, FORMULA_VALUE, STYLE_SEQ
+          FROM wo_sheet_cell_line
+         WHERE SHEET_SEQ  = #{sheetSeq}
+           AND ROW_NO    BETWEEN #{range.fromRowNo}    AND #{range.toRowNo}
+           AND COLUMN_NO BETWEEN #{range.fromColumnNo} AND #{range.toColumnNo}
+           AND DEL_DATETIME IS NULL
+         ORDER BY ROW_NO, COLUMN_NO
+    </select>
+
+    <update id="softDeleteCells">
+        UPDATE wo_sheet_cell_line
+           SET DEL_DATETIME = CURRENT_TIMESTAMP,
+               DEL_USER      = #{userKey}
+         WHERE SHEET_SEQ = #{sheetSeq}
+           AND DEL_DATETIME IS NULL
+           AND (
+        <foreach collection="cells" item="cell" separator=" OR ">
+               (ROW_NO = #{cell.rowNo} AND COLUMN_NO = #{cell.columnNo})
+        </foreach>
+               )
+    </update>
+
+    <!--
+      업서트는 이 프로젝트의 유일한 진짜 벤더 분기다.
+
+      세 구문 모두 같은 결과를 내야 한다.
+        - 있으면 갱신(MOD_*), 없으면 삽입(INPUT_*)
+        - 소프트삭제된 행은 DEL_DATETIME 을 NULL 로 되돌려 되살린다
+
+      마지막 항목을 빠뜨리면 지웠던 셀에 다시 값을 넣을 때 조회에서 사라진다.
+      셋 다 그 단정을 CellMapperTest 가 건다.
+    -->
+
+    <!-- 기본(H2). MODE=PostgreSQL 이어도 H2 는 ON CONFLICT 를 지원하지 않는다(2026-08-03 실측). -->
+    <!--
+      갓 만든 시트에 첫 값을 넣는다. 겹칠 자리가 없어 충돌 검사가 없다 - 그만큼
+      빠르다(2026-08-18 실측: 15만 셀 22.6초 → 아래 참조). 세 벤더가 같은 문장을
+      쓴다. 오라클은 여러 줄 VALUES 를 안 받아 INSERT ALL 로 적는다.
+    -->
+    <insert id="insertCell">
+        INSERT INTO wo_sheet_cell_line (
+            SHEET_SEQ, ROW_NO, COLUMN_NO, VALUE_TYPE, TEXT_VALUE, NUMBER_VALUE,
+            DATETIME_VALUE, BOOLEAN_YN, FORMULA_VALUE, STYLE_SEQ,
+            INPUT_DATETIME, INPUT_USER
+        ) VALUES (
+            #{sheetSeq}, #{cell.rowNo}, #{cell.columnNo}, #{cell.valueType},
+            #{cell.textValue}, #{cell.numberValue}, #{cell.datetimeValue},
+            #{cell.booleanYn}, #{cell.formulaValue}, #{cell.styleSeq},
+            CURRENT_TIMESTAMP, #{userKey}
+        )
+    </insert>
+
+    <insert id="insertCells">
+        INSERT INTO wo_sheet_cell_line (
+            SHEET_SEQ, ROW_NO, COLUMN_NO, VALUE_TYPE, TEXT_VALUE, NUMBER_VALUE,
+            DATETIME_VALUE, BOOLEAN_YN, FORMULA_VALUE, STYLE_SEQ,
+            INPUT_DATETIME, INPUT_USER
+        ) VALUES
+        <foreach collection="cells" item="cell" separator=",">
+            (#{sheetSeq}, #{cell.rowNo}, #{cell.columnNo}, #{cell.valueType},
+             #{cell.textValue}, #{cell.numberValue}, #{cell.datetimeValue},
+             #{cell.booleanYn}, #{cell.formulaValue}, #{cell.styleSeq},
+             CURRENT_TIMESTAMP, #{userKey})
+        </foreach>
+    </insert>
+
+    <insert id="upsertCells">
+        <foreach collection="cells" item="cell" separator=";">
+            MERGE INTO wo_sheet_cell_line T
+            USING (SELECT CAST(#{sheetSeq} AS BIGINT) AS SHEET_SEQ,
+                          CAST(#{cell.rowNo} AS INT) AS ROW_NO,
+                          CAST(#{cell.columnNo} AS INT) AS COLUMN_NO) S
+               ON (T.SHEET_SEQ = S.SHEET_SEQ
+               AND T.ROW_NO    = S.ROW_NO
+               AND T.COLUMN_NO = S.COLUMN_NO)
+            WHEN MATCHED THEN UPDATE SET
+                 VALUE_TYPE     = #{cell.valueType},
+                 TEXT_VALUE     = #{cell.textValue},
+                 NUMBER_VALUE   = #{cell.numberValue},
+                 DATETIME_VALUE = #{cell.datetimeValue},
+                 BOOLEAN_YN     = #{cell.booleanYn},
+                 FORMULA_VALUE  = #{cell.formulaValue},
+                 STYLE_SEQ      = #{cell.styleSeq},
+                 MOD_DATETIME   = CURRENT_TIMESTAMP,
+                 MOD_USER        = #{userKey},
+                 DEL_DATETIME   = NULL,
+                 DEL_USER        = NULL
+            WHEN NOT MATCHED THEN INSERT (
+                 SHEET_SEQ, ROW_NO, COLUMN_NO, VALUE_TYPE, TEXT_VALUE, NUMBER_VALUE,
+                 DATETIME_VALUE, BOOLEAN_YN, FORMULA_VALUE, STYLE_SEQ,
+                 INPUT_DATETIME, INPUT_USER
+            ) VALUES (
+                 #{sheetSeq}, #{cell.rowNo}, #{cell.columnNo}, #{cell.valueType},
+                 #{cell.textValue}, #{cell.numberValue}, #{cell.datetimeValue},
+                 #{cell.booleanYn}, #{cell.formulaValue}, #{cell.styleSeq},
+                 CURRENT_TIMESTAMP, #{userKey}
+            )
+        </foreach>
+    </insert>
+
+    <!--
+      PostgreSQL. 다중 행을 한 문장으로 묶을 수 있는 유일한 벤더다.
+
+      MOD_USER 에 EXCLUDED.INPUT_USER 가 아니라 #{userKey} 를 직접 쓴다. EXCLUDED 는
+      삽입하려던 행이므로 값은 같지만, "갱신자를 삽입 컬럼에서 꺼낸다"는 표현이
+      읽는 사람에게 의도를 숨긴다.
+
+      이 구문은 H2 로 검증되지 않는다. 실 PostgreSQL 접속 시 처음 실행된다.
+    -->
+    <insert id="upsertCells" databaseId="postgresql">
+        INSERT INTO wo_sheet_cell_line (
+            SHEET_SEQ, ROW_NO, COLUMN_NO, VALUE_TYPE, TEXT_VALUE, NUMBER_VALUE,
+            DATETIME_VALUE, BOOLEAN_YN, FORMULA_VALUE, STYLE_SEQ,
+            INPUT_DATETIME, INPUT_USER
+        ) VALUES
+        <foreach collection="cells" item="cell" separator=",">
+            (#{sheetSeq}, #{cell.rowNo}, #{cell.columnNo}, #{cell.valueType},
+             #{cell.textValue}, #{cell.numberValue}, #{cell.datetimeValue},
+             #{cell.booleanYn}, #{cell.formulaValue}, #{cell.styleSeq},
+             CURRENT_TIMESTAMP, #{userKey})
+        </foreach>
+        ON CONFLICT (SHEET_SEQ, ROW_NO, COLUMN_NO) DO UPDATE SET
+            VALUE_TYPE     = EXCLUDED.VALUE_TYPE,
+            TEXT_VALUE     = EXCLUDED.TEXT_VALUE,
+            NUMBER_VALUE   = EXCLUDED.NUMBER_VALUE,
+            DATETIME_VALUE = EXCLUDED.DATETIME_VALUE,
+            BOOLEAN_YN     = EXCLUDED.BOOLEAN_YN,
+            FORMULA_VALUE  = EXCLUDED.FORMULA_VALUE,
+            STYLE_SEQ      = EXCLUDED.STYLE_SEQ,
+            MOD_DATETIME   = CURRENT_TIMESTAMP,
+            MOD_USER        = #{userKey},
+            DEL_DATETIME   = NULL,
+            DEL_USER        = NULL
+    </insert>
+</mapper>

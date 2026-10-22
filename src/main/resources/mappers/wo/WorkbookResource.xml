@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="weboffice.workbook.WorkbookResourceMapper">
+
+    <select id="selectResources"
+            resultType="weboffice.workbook.WorkbookResourceDto">
+        SELECT RESOURCE_NAME AS NAME, RESOURCE_JSON AS DATA
+          FROM wo_workbook_resource_line
+         WHERE WORKBOOK_SEQ = #{workbookSeq}
+         ORDER BY RESOURCE_NAME
+    </select>
+
+    <!--
+        지우고 넣는다. DB 마다 UPSERT 문법이 달라(postgresql 은 ON CONFLICT,
+        오라클은 MERGE) 갈래를 두느니 두 번 부른다. 리소스는 어쩌다 한 번 저장하는
+        것이라 왕복 한 번이 더 드는 것이 문제가 되지 않는다.
+    -->
+    <delete id="deleteResource">
+        DELETE FROM wo_workbook_resource_line
+         WHERE WORKBOOK_SEQ = #{workbookSeq}
+           AND RESOURCE_NAME = #{name}
+    </delete>
+
+    <insert id="insertResource">
+        INSERT INTO wo_workbook_resource_line (
+            WORKBOOK_SEQ, RESOURCE_NAME, RESOURCE_JSON, INPUT_DATETIME, INPUT_USER
+        ) VALUES (
+            #{workbookSeq}, #{name}, #{data}, CURRENT_TIMESTAMP, #{userKey}
+        )
+    </insert>
+</mapper>

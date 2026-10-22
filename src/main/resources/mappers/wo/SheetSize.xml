@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="weboffice.sheet.SheetSizeMapper">
+
+    <select id="selectSizes" resultType="weboffice.sheet.SheetSizeDto">
+        SELECT AXIS_TYPE, INDEX_NO, SIZE_PX
+          FROM wo_sheet_size_line
+         WHERE SHEET_SEQ = #{sheetSeq}
+           AND DEL_DATETIME IS NULL
+         ORDER BY AXIS_TYPE, INDEX_NO
+    </select>
+
+    <update id="softDeleteSizes">
+        UPDATE wo_sheet_size_line
+           SET DEL_DATETIME = CURRENT_TIMESTAMP,
+               DEL_USER      = #{userKey}
+         WHERE SHEET_SEQ = #{sheetSeq}
+           AND DEL_DATETIME IS NULL
+           AND (
+        <foreach collection="sizes" item="size" separator=" OR ">
+            (AXIS_TYPE = #{size.axisType} AND INDEX_NO = #{size.indexNo})
+        </foreach>
+           )
+    </update>
+
+    <!--
+      셀 업서트와 같은 규칙이다. 세 구문이 같은 결과를 내야 한다.
+        - 있으면 갱신(MOD_*), 없으면 삽입(INPUT_*)
+        - 소프트삭제된 행은 DEL_DATETIME 을 NULL 로 되돌려 되살린다
+
+      마지막 항목을 빠뜨리면 기본으로 되돌렸다가 다시 조정한 줄이 조회에서
+      사라진다. SheetSizeTest 가 그 단정을 건다.
+    -->
+
+    <!-- 기본(H2). MODE=PostgreSQL 이어도 H2 는 ON CONFLICT 를 지원하지 않는다. -->
+    <insert id="upsertSizes">
+        <foreach collection="sizes" item="size" separator=";">
+            MERGE INTO wo_sheet_size_line T
+            USING (SELECT CAST(#{sheetSeq} AS BIGINT) AS SHEET_SEQ,
+                          CAST(#{size.axisType} AS VARCHAR) AS AXIS_TYPE,
+                          CAST(#{size.indexNo} AS INT) AS INDEX_NO) S
+               ON (T.SHEET_SEQ = S.SHEET_SEQ
+               AND T.AXIS_TYPE = S.AXIS_TYPE
+               AND T.INDEX_NO  = S.INDEX_NO)
+            WHEN MATCHED THEN UPDATE SET
+                 SIZE_PX      = #{size.sizePx},
+                 MOD_DATETIME = CURRENT_TIMESTAMP,
+                 MOD_USER      = #{userKey},
+                 DEL_DATETIME = NULL,
+                 DEL_USER      = NULL
+            WHEN NOT MATCHED THEN INSERT (
+                 SHEET_SEQ, AXIS_TYPE, INDEX_NO, SIZE_PX, INPUT_DATETIME, INPUT_USER
+            ) VALUES (
+                 #{sheetSeq}, #{size.axisType}, #{size.indexNo}, #{size.sizePx},
+                 CURRENT_TIMESTAMP, #{userKey}
+            )
+        </foreach>
+    </insert>
+
+    <insert id="upsertSizes" databaseId="postgresql">
+        INSERT INTO wo_sheet_size_line (
+            SHEET_SEQ, AXIS_TYPE, INDEX_NO, SIZE_PX, INPUT_DATETIME, INPUT_USER
+        ) VALUES
+        <foreach collection="sizes" item="size" separator=",">
+            (#{sheetSeq}, #{size.axisType}, #{size.indexNo}, #{size.sizePx},
+             CURRENT_TIMESTAMP, #{userKey})
+        </foreach>
+        ON CONFLICT (SHEET_SEQ, AXIS_TYPE, INDEX_NO) DO UPDATE SET
+            SIZE_PX      = EXCLUDED.SIZE_PX,
+            MOD_DATETIME = CURRENT_TIMESTAMP,
+            MOD_USER      = #{userKey},
+            DEL_DATETIME = NULL,
+            DEL_USER      = NULL
+    </insert>
+</mapper>

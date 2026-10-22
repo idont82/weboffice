@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>관리자 — KCC Web Office</title>
+    <!--
+      /admin 만 치고 들어오는 사람에게 무엇이 있는지 보여 주는 자리다. 화면 주소를
+      외워 다니지 않게 한다(2026-08-20 지적). 들어오는 관문은 서버가 잡는다 -
+      SSO 로그인 + 관리자 계정 목록을 통과해야 이 파일이 나온다.
+    -->
+    <style>
+      :root { --line: #e3e6e8; --ink: #24292f; --dim: #6b7580; --blue: #1a5fc8; }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; padding: 48px 24px 80px; color: var(--ink);
+        font-family: system-ui, "Malgun Gothic", sans-serif; line-height: 1.6;
+      }
+      main { max-width: 760px; margin: 0 auto; }
+      h1 { font-size: 24px; margin: 0 0 4px; }
+      .lead { color: var(--dim); margin: 0 0 32px; font-size: 14px; }
+      h2 {
+        font-size: 15px; color: var(--dim); margin: 32px 0 10px;
+        text-transform: none; font-weight: 600;
+      }
+      .card {
+        display: block; text-decoration: none; color: inherit;
+        border: 1px solid var(--line); border-radius: 8px;
+        padding: 16px 18px; margin-bottom: 10px; transition: border-color .12s, background .12s;
+      }
+      .card:hover { border-color: var(--blue); background: #f7faff; }
+      .card .name { font-size: 15px; font-weight: 600; color: var(--blue); }
+      .card .path {
+        font-family: Consolas, monospace; font-size: 12px; color: var(--dim);
+        margin-left: 8px;
+      }
+      .card .what { font-size: 13px; color: #4a5560; margin-top: 4px; }
+      .plain { border-style: dashed; }
+      .plain .name { color: var(--ink); }
+      footer {
+        margin-top: 40px; padding-top: 14px; border-top: 1px solid var(--line);
+        color: var(--dim); font-size: 12px;
+      }
+      code { background: #f4f6f8; border-radius: 3px; padding: 1px 5px; font-size: 12px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>관리자</h1>
+      <p class="lead">사내 계정 중 관리자로 등록된 사람만 들어오는 자리다.</p>
+
+      <h2>문서 뷰어</h2>
+
+      <a class="card" href="/admin/views">
+        <span class="name">보기 이력</span><span class="path">/admin/views</span>
+        <div class="what">
+          누가 · 언제 · 어느 문서를 봤는지, 어느 시스템이 무엇을 보냈는지, 무엇이
+          실패했는지 본다. 위쪽에 하루 건수 · 평균 변환 시간 · 캐시에 든 문서 수가 나온다.
+        </div>
+      </a>
+
+      <a class="card" href="/viewer-guide.html">
+        <span class="name">연동 안내</span><span class="path">/viewer-guide.html</span>
+        <div class="what">
+          다른 시스템 개발자에게 넘길 문서다. 발급 호출 두 방식, 링크 수명 세 겹,
+          오류 코드와 대처, 자바·자바스크립트 예시가 있다.
+        </div>
+      </a>
+
+      <a class="card" href="/admin/oss">
+        <span class="name">오픈소스 현황</span><span class="path">/admin/oss</span>
+        <div class="what">
+          쓰고 있는 바깥 라이브러리를 버전 · 라이선스 · 쓰임까지 한 자리에서 본다. 배포물에
+          들어가는 것과 빌드에서만 쓰는 것, 오픈소스가 아닌 것(상용 · 사내)을 갈라 보여 주고,
+          배포에 붙일 고지문을 만들어 준다.
+        </div>
+      </a>
+
+      <h2>파일함</h2>
+
+      <a class="card" href="/">
+        <span class="name">내 파일함</span><span class="path">/</span>
+        <div class="what">
+          시트 · 문서 · 슬라이드를 만들고 여는 평소 화면. 지운 파일은 그 화면의 휴지통에서
+          30일 안에 되살린다.
+        </div>
+      </a>
+
+      <div class="card plain">
+        <span class="name">버전 기록</span><span class="path">파일을 연 뒤 파일 &gt; 버전 기록</span>
+        <div class="what">
+          누가 언제 무엇을 고쳤는지 보고, 그 시점으로 되돌린다. 되돌린 것도 기록에
+          남아 다시 앞으로 갈 수 있다.
+        </div>
+      </div>
+
+      <h2>손볼 자리</h2>
+
+      <div class="card plain">
+        <span class="name">관리자 계정</span><span class="path">weboffice.view.admins</span>
+        <div class="what">
+          이 화면에 들어올 수 있는 <strong>계정(userId)</strong> 목록. 설정에 적고 재시작한다.
+          비워 두면 아무도 못 들어온다.
+        </div>
+      </div>
+
+      <div class="card plain">
+        <span class="name">부를 수 있는 시스템</span><span class="path">weboffice.view.callers</span>
+        <div class="what">
+          뷰어 발급을 부를 수 있는 <strong>IP 대역</strong>. 대역 밖에서 부르면 403 이고
+          그 사실이 이력에 남는다.
+        </div>
+      </div>
+
+      <div class="card plain">
+        <span class="name">수명</span>
+        <span class="path">token-minutes · session-hours · cache-minutes</span>
+        <div class="what">
+          보기 링크 5분 · 연 창 8시간 · 문서 데이터 1시간. 셋 중 가장 짧은 것이 실제 수명이다.
+        </div>
+      </div>
+
+      <div class="card plain">
+        <span class="name">뷰어 끄기</span><span class="path">weboffice.view.enabled: false</span>
+        <div class="what">
+          발급과 열람을 한 번에 막는다(503). 이 관리자 화면은 계속 열린다 — 무슨 일이
+          있었는지 봐야 하니까.
+        </div>
+      </div>
+
+      <footer>Web Office</footer>
+    </main>
+  </body>
+</html>
