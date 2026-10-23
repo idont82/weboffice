@@ -176,7 +176,7 @@ describe('renderOss', () => {
 
   it('고지문 단추를 누르면 받아 온 글을 보여 준다', async () => {
     const box = document.createElement('div');
-    const onNotice = vi.fn().mockResolvedValue('KCC Web Office\n\n- Univer 0.25.1');
+    const onNotice = vi.fn().mockResolvedValue('Web Office\n\n- Univer 0.25.1');
 
     renderOss(box, { ...payload([item()]), onNotice });
     const button = box.querySelector('button') as HTMLButtonElement;

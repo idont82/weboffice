@@ -122,7 +122,7 @@ export function renderDocumentList(
   const draw = () => {
     // 비우지 않으면 새로 고칠 때마다 같은 문서가 여러 줄이 된다.
     container.replaceChildren();
-    container.append(heading('KCC Web Office',
+    container.append(heading('Web Office',
       '파일을 새로 만들거나 최근 파일을 이어서 씁니다'));
     if (onSearch) {
       container.append(searchBox());

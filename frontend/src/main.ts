@@ -253,7 +253,7 @@ import { createServerImageIoService } from './serverImageIo';
 import { openShareDialog } from './shareDialog';
 import { createTitleEditor } from './titleEditor';
 
-const PRODUCT_NAME = 'KCC Web Office';
+const PRODUCT_NAME = 'Web Office';
 
 /**
  * 셀 선택 테두리 굵기.
@@ -1171,8 +1171,12 @@ const titleEditor = createTitleEditor({
   element: workbookTitleEl,
   canWrite: false,
   onRename: (name) => {
-    if (!open) return;
-    void api.renameWorkbook(open.workbookSeq, name)
+    // open 은 시트를 열 때만 채워진다. 그것만 보면 **글 문서의 제목 바꾸기가
+    // 아무 말 없이 사라진다** - 화면의 글자는 바뀌고, 서버는 그대로다. 글은
+    // openDocSeq 로 열린다(355·1633행이 쓰는 것과 같은 관용구다).
+    const workbookSeq = open?.workbookSeq ?? openDocSeq;
+    if (workbookSeq == null) return;
+    void api.renameWorkbook(workbookSeq, name)
       .then(() => status('제목을 바꿨습니다'))
       .catch((error) => status(messageOf(error)));
   },
@@ -1181,7 +1185,7 @@ const titleEditor = createTitleEditor({
 /**
  * 브라우저 탭 제목.
  *
- * <p>탭이 여럿일 때 어느 것이 어느 문서인지 알 수 있어야 한다 - 전부 "KCC Web Office"
+ * <p>탭이 여럿일 때 어느 것이 어느 문서인지 알 수 있어야 한다 - 전부 "Web Office"
  * 였다(2026-08-07 지적). 목록 화면이나 못 여는 문서에서는 제품 이름만 남긴다.
  */
 function showPageTitle(workbookName: string | null) {

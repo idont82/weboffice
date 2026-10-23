@@ -67,27 +67,84 @@ class PublicReleaseScanTest {
     }
 
     /**
-     * 자바 패키지에 회사 이름이 돌아오지 않는지 본다.
+     * 어디에도 회사 이름이 남지 않는지 본다.
      *
-     * <p>2026-10-22 에 회사 이름이 든 접두를 떼고 {@code weboffice} 로 바꿨다.
-     * 자동 들여오기나 복사붙이기로 옛 이름이 한 파일만 돌아와도 공개 저장소에
-     * 회사 이름이 남는다.
+     * <p>이 검사는 두 번 뚫렸다. 처음에는 <b>도메인만</b> 봤다 - 회사 이름에
+     * world 를 붙인 꼴이라, 회사 이름 자체는 걸리지 않았다. 그리고 자바만
+     * 훑었다. 그래서 제품 이름에 회사 이름이 붙은 채 화면 제목으로 11개 파일에
+     * 남아 공개됐고, 브라우저 탭에 그대로 떴다. 띄워 보고서야 알았다.
+     *
+     * <p>이제 <b>회사 이름 토막</b>을 대소문자 가리지 않고 보고, 프런트와
+     * {@code pom.xml} 까지 훑는다. 공개되는 글자는 자바에만 있지 않다.
      *
      * <p>찾을 낱말을 글로 적어 두면 이 파일 자신이 걸린다. 그래서 토막으로
      * 나눠 두고 이을 때 합친다 - 예외 목록을 두는 쪽은 그 목록 안에 무엇이든
      * 숨길 수 있어 검사의 뜻이 약해진다. 이 시험도 자기 자신을 검사한다.
      */
     @org.junit.jupiter.api.Test
-    void 자바_패키지에_회사_이름이_없다() throws IOException {
-        String word = "kcc" + "world";
+    void 어디에도_회사_이름이_없다() throws IOException {
+        String word = "k" + "cc";
 
         List<String> hits = new ArrayList<>();
-        for (Path file : sourceFiles()) {
-            if (Files.readString(file, StandardCharsets.UTF_8).contains(word)) {
+        for (Path file : publishedTextFiles()) {
+            String text = Files.readString(file, StandardCharsets.UTF_8);
+            if (text.toLowerCase(java.util.Locale.ROOT).contains(word)) {
                 hits.add(file.toString());
             }
         }
-        assertThat(hits).as("패키지 이름을 weboffice 로 두었다").isEmpty();
+        assertThat(hits)
+                .as("제품 이름과 패키지에서 회사 이름을 뗐다. 화면 제목까지 본다")
+                .isEmpty();
+    }
+
+    /**
+     * 공개되는 글자 파일 전부.
+     *
+     * <p>{@code node_modules} 와 내려받은 node 는 뺀다 - 우리가 쓴 글이 아니고,
+     * 그 안에는 임의의 바이트가 들어 있어 무엇이든 걸린다.
+     */
+    private static List<Path> publishedTextFiles() throws IOException {
+        List<Path> found = new ArrayList<>();
+        Path pom = Path.of("pom.xml");
+        if (Files.isRegularFile(pom)) {
+            found.add(pom);
+        }
+        for (Path root : List.of(Path.of("src/main/java"), Path.of("src/main/resources"),
+                Path.of("src/test/java"), Path.of("frontend/src"),
+                Path.of("frontend/public"), Path.of("db"))) {
+            if (Files.isDirectory(root)) {
+                found.addAll(textFilesUnder(root));
+            }
+        }
+        // frontend 바로 아래의 html 만. 그 아래 node_modules 로 내려가지 않는다.
+        Path frontend = Path.of("frontend");
+        if (Files.isDirectory(frontend)) {
+            try (Stream<Path> listed = Files.list(frontend)) {
+                listed.filter(Files::isRegularFile)
+                        .filter(one -> one.getFileName().toString().endsWith(".html"))
+                        .forEach(found::add);
+            }
+        }
+        return found;
+    }
+
+    private static List<Path> textFilesUnder(Path root) throws IOException {
+        try (Stream<Path> walked = Files.walk(root)) {
+            return walked.filter(Files::isRegularFile)
+                    .filter(one -> {
+                        String path = one.toString().replace('\\', '/');
+                        return !path.contains("/node_modules/") && !path.contains("/node/");
+                    })
+                    .filter(one -> {
+                        String name = one.getFileName().toString();
+                        return name.endsWith(".java") || name.endsWith(".xml")
+                                || name.endsWith(".ts") || name.endsWith(".html")
+                                || name.endsWith(".yml") || name.endsWith(".yaml")
+                                || name.endsWith(".json") || name.endsWith(".sql")
+                                || name.endsWith(".properties");
+                    })
+                    .toList();
+        }
     }
 
     /**
@@ -191,23 +248,6 @@ class PublicReleaseScanTest {
                             String name = one.getFileName().toString();
                             return name.endsWith(".java") || name.endsWith(".ts")
                                     || name.endsWith(".html");
-                        })
-                        .forEach(found::add);
-            }
-        }
-        return found;
-    }
-
-    /** 자바와 매퍼 전부. 이 파일도 포함한다. */
-    private static List<Path> sourceFiles() throws IOException {
-        List<Path> found = new ArrayList<>();
-        for (Path root : List.of(Path.of("src/main/java"), Path.of("src/main/resources"),
-                Path.of("src/test/java"))) {
-            try (Stream<Path> walked = Files.walk(root)) {
-                walked.filter(Files::isRegularFile)
-                        .filter(one -> {
-                            String name = one.getFileName().toString();
-                            return name.endsWith(".java") || name.endsWith(".xml");
                         })
                         .forEach(found::add);
             }

@@ -15,7 +15,7 @@
     <artifactId>weboffice</artifactId>
     <version>0.0.1-SNAPSHOT</version>
     <name>kweboffice</name>
-    <description>KCC Web Office - 여러 사람이 함께 쓰는 웹 오피스</description>
+    <description>Web Office - 여러 사람이 함께 쓰는 웹 오피스</description>
 
     <properties>
         <java.version>21</java.version>

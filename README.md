@@ -1,13 +1,22 @@
 # Web Office
 
+English · [한국어](README.ko.md)
+
 A self-hosted web office: open, view and edit Word documents and spreadsheets
-in the browser, with real-time collaborative editing on sheets.
+in the browser, with real-time collaborative editing on sheets. It also reads
+Korean `.hwp` and `.hwpx` files.
 
 Built on [Univer](https://github.com/dream-num/univer) for rendering and
 [Apache POI](https://poi.apache.org/) for file handling, with a Spring Boot
 backend and PostgreSQL.
 
-> **Status: early.** It runs and it is tested (850 backend + 669 frontend
+![The document list](screenshots/home.jpg)
+
+| Spreadsheet | Document |
+|---|---|
+| ![A sheet open for editing](screenshots/sheet.jpg) | ![A document open for editing](screenshots/doc.jpg) |
+
+> **Status: early.** It runs and it is tested (852 backend + 669 frontend
 > tests), but see [What it does not do](#what-it-does-not-do) before you
 > rely on it.
 >
@@ -148,7 +157,7 @@ Everything has a working default. Set these as environment variables.
 ## Build and test
 
 ```sh
-mvn test                                     # backend, 850 tests
+mvn test                                     # backend, 852 tests
 cd frontend && npm ci && npx vitest run      # frontend, 669 tests
 ```
 
