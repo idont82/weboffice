@@ -70,6 +70,10 @@ export interface DocTable {
    * <p>네 변 가운데 아래만 긋는 제목 표가 흔하다(2026-08-26 지적).
    */
   borders?: string;
+  /** 칸마다 그은 변. 칸이 제 값을 가지면 표 전체 값보다 먼저다. */
+  cellBorders?: (string | null)[][];
+  /** 칸 안 문단마다의 서식. 칸 글의 줄 차례와 자리가 같다. */
+  cellStyles?: (string | null)[][];
   /**
    * 이 표가 새 쪽을 여는지.
    *
@@ -170,7 +174,7 @@ const NO_BORDER = {
  * <p>네 변 가운데 아래만 긋는 제목 표가 흔하다. 안 그은 변은 굵기 0 으로 닫는다 -
  * 안 닫으면 화면 기본(격자)이 살아나 원본과 딴판이 된다(2026-08-26 지적).
  */
-function cellBorders(drawn: string | undefined): Record<string, unknown> | null {
+function drawnSides(drawn: string | undefined): Record<string, unknown> | null {
   if (!drawn) {
     return null;
   }
@@ -196,6 +200,34 @@ function cellBorders(drawn: string | undefined): Record<string, unknown> | null 
   }
   return made;
 }
+/**
+ * 네 변을 다 닫은 칸.
+ *
+ * 칸마다 테두리를 적는 표에서 "내 변은 없다" 는 칸에 쓴다. {@link NO_BORDER} 와
+ * 뜻은 같지만 꼴이 다르다 - 같은 표 안에서 꼴이 섞이면 화면이 한쪽만 다르게
+ * 그린다. 그려 주는 함수에서 바로 만들어 꼴을 하나로 묶는다.
+ */
+const CLOSED_SIDES = drawnSides('{}') as Record<string, unknown>;
+
+/**
+ * 칸 안 문단마다의 서식을 줄 차례대로 꺼낸다.
+ *
+ * 서버가 실은 것은 문단 서식 통째다({@code {"paragraphStyle":{...}}}). 화면이
+ * 쓰는 것은 그 안쪽뿐이라 벗겨서 준다. 못 읽으면 빈 줄로 둔다 - 서식 하나 때문에
+ * 칸 글이 통째로 사라지는 것보다 낫다.
+ */
+function innerStyles(packed: string | null | undefined): Record<string, unknown>[] {
+  if (!packed) {
+    return [];
+  }
+  try {
+    const rows = JSON.parse(packed) as ({ paragraphStyle?: unknown } | null)[];
+    return rows.map((one) => (one?.paragraphStyle ?? {}) as Record<string, unknown>);
+  } catch {
+    return [];
+  }
+}
+
 const ROW_HEIGHT = { val: { v: 30 }, hRule: 0 };
 
 /** 칸 여백 없음. 못박은 줄에 쓴다 - 여백이 남으면 그만큼 줄이 두꺼워진다. */
@@ -480,6 +512,12 @@ export function toBodyWithTables(rows: DocParagraph[], tables: DocTable[],
           // 칸 안 줄 나눔마다 문단을 만든다. 한 줄로 이으면 원본보다 표가 낮아져
           // 뒷글이 앞 쪽으로 올라온다(2026-08-25 지적: 박스가 다음 쪽으로 넘어간다).
           const cellLines = cell.split(CELL_LINE_BREAK);
+          // 칸 안 문단마다의 서식. 없으면 칸 하나의 맞춤으로 물러선다 - 머릿글
+          // 표가 쓰는 것과 같은 값이다.
+          const lineStyles = innerStyles(table.cellStyles?.[rowNo]?.[columnNo]);
+          const cellAlign = table.cellAligns?.[rowNo]?.[columnNo];
+          const fallbackAlign = cellAlign != null && cellAlign !== 1
+            ? { horizontalAlign: cellAlign } : {};
           // 마지막 줄에는 간격을 두지 않는다. 워드 원본이 그렇게 적는다.
           const space = table.cellSpaces?.[rowNo]?.[columnNo] ?? 0;
           const spacedStyle = space > 0
@@ -487,11 +525,14 @@ export function toBodyWithTables(rows: DocParagraph[], tables: DocTable[],
           for (const [at, line] of cellLines.entries()) {
             stream += line;
             if (at < cellLines.length - 1) {
-              paragraphs.push({ startIndex: stream.length, paragraphStyle: spacedStyle });
+              paragraphs.push({ startIndex: stream.length,
+                paragraphStyle: { ...spacedStyle, ...fallbackAlign, ...lineStyles[at] } });
               stream += PARAGRAPH_END;
             }
           }
-          paragraphs.push({ startIndex: stream.length, paragraphStyle: cellStyle });
+          paragraphs.push({ startIndex: stream.length,
+            paragraphStyle: { ...cellStyle, ...fallbackAlign,
+              ...lineStyles[cellLines.length - 1] } });
           stream += '\r\n' + CELL_END;
         }
         stream += ROW_END;
@@ -533,8 +574,14 @@ export function toBodyWithTables(rows: DocParagraph[], tables: DocTable[],
                 },
               // 테두리를 지운 표를 격자로 그리면 원본과 딴판이다 - 줄 세우기
               // 용도로 쓴 표가 격자로 보인다. 그은 변만 적힌 표는 그 변만 긋는다.
-              ...(table.hasBorders === false
-                ? NO_BORDER : cellBorders(table.borders) ?? {}),
+              // 칸이 제 변을 알면 그것이 먼저다. 한글 서식은 칸마다 선이
+              // 달라 표 하나로는 담기지 않는다 - 다 같은 선으로 그으면
+              // 격자가 되어 원본과 딴판이 된다(2026-10-26 비교).
+              ...(table.hasBorders === false ? NO_BORDER
+                : table.cellBorders?.[rowNo] != null
+                  ? drawnSides(table.cellBorders[rowNo][columnNo] ?? undefined)
+                    ?? CLOSED_SIDES
+                  : drawnSides(table.borders) ?? {}),
               ...(shade ? { backgroundColor: { rgb: shade } } : {}),
               // 합치기는 다른 값일 때만 적는다. 1 을 적어도 뜻은 같지만 문서가
               // 쓸데없이 커지고, 손댄 곳을 나중에 찾기 어려워진다.

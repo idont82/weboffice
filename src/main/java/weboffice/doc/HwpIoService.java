@@ -62,6 +62,10 @@ public class HwpIoService {
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
+    /** 선 굵기 이름에서 밀리미터를 뽑는다. MM0_5 와 MM_0_5 를 다 받는다. */
+    private static final java.util.regex.Pattern THICKNESS =
+            java.util.regex.Pattern.compile("MM_?(\\d+)_(\\d+)");
+
     /** 한글이 쓰는 길이 단위. 1/7200 인치라 96dpi 화면에서는 75 가 1px 이다. */
     private static final double HWPUNIT_PER_PX = 7200d / 96d;
 
@@ -226,7 +230,11 @@ public class HwpIoService {
                 line.add(new Placed(content.text(), content.runs(),
                         cell.getListHeader().getColIndex(),
                         Math.max(1, cell.getListHeader().getColSpan()),
-                        Math.max(1, cell.getListHeader().getRowSpan())));
+                        Math.max(1, cell.getListHeader().getRowSpan()),
+                        hwpShade(docInfo, cell.getListHeader().getBorderFillId()),
+                        content.align(),
+                        hwpBorders(docInfo, cell.getListHeader().getBorderFillId()),
+                        content.styles()));
             }
             grid.add(line);
         }
@@ -234,9 +242,10 @@ public class HwpIoService {
                 hwpRowHeights(table), hwpCellMargin(table));
     }
 
-    /** 자리를 아는 칸 하나. */
+    /** 자리를 아는 칸 하나. {@code shade} 는 칠하지 않은 칸이면 null 이다. */
     private record Placed(String text, String runs, int columnHint, int columnSpan,
-                          int rowSpan) {
+                          int rowSpan, String shade, int align, String borders,
+                          String styles) {
     }
 
     /**
@@ -261,6 +270,14 @@ public class HwpIoService {
         List<List<String>> runs = new ArrayList<>();
         List<List<Integer>> columnSpans = new ArrayList<>();
         List<List<Integer>> rowSpans = new ArrayList<>();
+        List<List<String>> shades = new ArrayList<>();
+        List<List<Integer>> aligns = new ArrayList<>();
+        List<List<String>> borders = new ArrayList<>();
+        List<List<String>> styles = new ArrayList<>();
+        boolean anyShade = false;
+        boolean anyAlign = false;
+        boolean anyBorder = false;
+        boolean anyStyle = false;
 
         for (List<Placed> line : grid) {
             List<String> texts = new ArrayList<>(java.util.Collections.nCopies(columnCount, ""));
@@ -268,6 +285,14 @@ public class HwpIoService {
                     (String) null));
             List<Integer> across = new ArrayList<>(java.util.Collections.nCopies(columnCount, 0));
             List<Integer> down = new ArrayList<>(java.util.Collections.nCopies(columnCount, 0));
+            List<String> shade = new ArrayList<>(java.util.Collections.nCopies(columnCount,
+                    (String) null));
+            List<Integer> align = new ArrayList<>(java.util.Collections.nCopies(columnCount,
+                    DocTableDto.ALIGN_LEFT));
+            List<String> edge = new ArrayList<>(java.util.Collections.nCopies(columnCount,
+                    (String) null));
+            List<String> inner = new ArrayList<>(java.util.Collections.nCopies(columnCount,
+                    (String) null));
 
             int at = 0;
             for (Placed cell : line) {
@@ -276,21 +301,63 @@ public class HwpIoService {
                 style.set(at, cell.runs());
                 across.set(at, cell.columnSpan());
                 down.set(at, cell.rowSpan());
+                shade.set(at, cell.shade());
+                align.set(at, cell.align());
+                edge.set(at, cell.borders());
+                inner.set(at, cell.styles());
+                anyShade |= cell.shade() != null;
+                anyAlign |= cell.align() != DocTableDto.ALIGN_LEFT;
+                anyBorder |= cell.borders() != null;
+                anyStyle |= cell.styles() != null;
                 at += cell.columnSpan();
             }
             cells.add(texts);
             runs.add(style);
             columnSpans.add(across);
             rowSpans.add(down);
+            shades.add(shade);
+            aligns.add(align);
+            borders.add(edge);
+            styles.add(inner);
         }
 
         // 한글이 적어 둔 줄 높이는 그 줄이 실제로 차지한 높이다. 못박아야 원본과
         // 같은 쪽에 앉는다 - "적어도" 로 두면 워드가 글에 맞춰 늘려 세 쪽짜리
         // 서식이 아홉 쪽이 됐다(2026-08-26 실측).
-        return new DocTableDto(afterParagraphNo, cells, columnWidths, List.of(),
+        return new DocTableDto(afterParagraphNo, cells, columnWidths,
+                anyShade ? shades : List.of(),
                 columnSpans, rowSpans, true, runs,
-                DocTableDto.ALIGN_LEFT, rowHeights, List.of(), List.of(), false, null,
-                true, cellMargin);
+                DocTableDto.ALIGN_LEFT, rowHeights, anyAlign ? aligns : List.of(),
+                List.of(), false, null,
+                true, cellMargin, anyBorder ? borders : List.of(),
+                anyStyle ? styles : List.of());
+    }
+
+    /**
+     * 칸의 바탕색({@code #rrggbb}). 칠하지 않았으면 null 이다.
+     *
+     * <p>한글은 칸의 바탕색과 네 변을 <b>칸 모양(BorderFill) 하나</b>에 같이 담고,
+     * 칸은 번호로 그것을 가리킨다. 번호는 1부터다 - 0 은 가리키지 않는다는 뜻이다.
+     *
+     * <p>색을 흘리면 관공서 서식의 뜻이 깨진다. 장기요양인정 신청서는 본문에
+     * "어두운 란은 신청인이 적지 않습니다" 라고 적어 두고, 어느 칸인지는
+     * 바탕색으로만 알려 준다.
+     */
+    private String hwpShade(DocInfo docInfo, int borderFillId) {
+        if (borderFillId <= 0 || borderFillId > docInfo.getBorderFillList().size()) {
+            return null;
+        }
+        var fill = docInfo.getBorderFillList().get(borderFillId - 1).getFillInfo();
+        if (fill == null || fill.getType() == null || !fill.getType().hasPatternFill()
+                || fill.getPatternFill() == null) {
+            return null;
+        }
+        var color = fill.getPatternFill().getBackColor();
+        if (color == null) {
+            return null;
+        }
+        // 여기서는 검정도 색이다. 글자와 달리 칸은 일부러 검게 칠하기도 한다.
+        return String.format("#%02x%02x%02x", color.getR(), color.getG(), color.getB());
     }
 
     /**
@@ -353,37 +420,87 @@ public class HwpIoService {
     }
 
     private List<Double> hwpColumnWidths(ControlTable table) {
-        // 열 자리(colIndex)와 차지하는 칸 수(colSpan)로 열마다 폭을 모은다. 한 줄만
-        // 보면 제목처럼 합친 칸 때문에 너비가 한둘만 잡혀 표가 뭉갠다
-        // (2026-08-26 지적: 아홉 칸 표가 한 칸이 됐다).
-        // 칸 번호를 안 적은 파일이 있다 - 그때는 차례대로 놓는다(spread 와 같은 셈).
+        List<Span> spans = new ArrayList<>();
         int columns = 0;
         for (Row row : table.getRowList()) {
             int at = 0;
             for (Cell cell : row.getCellList()) {
                 var header = cell.getListHeader();
                 at = Math.max(at, header.getColIndex());
-                columns = Math.max(columns, at + spanOf(header));
-                at += spanOf(header);
+                int span = spanOf(header);
+                spans.add(new Span(at, span, header.getWidth() / HWPUNIT_PER_PX));
+                columns = Math.max(columns, at + span);
+                at += span;
             }
         }
+        return columnWidths(spans, columns);
+    }
+
+    /** 표의 칸 하나가 차지한 자리와 너비(px). */
+    private record Span(int at, int span, double width) {
+    }
+
+    /**
+     * 열마다의 너비(px).
+     *
+     * <p>단독으로 선 칸은 제 너비를 그대로 알려 준다. 문제는 <b>단독으로 선 적이
+     * 없는 열</b>이다 - 관공서 서식에 흔하다. 그런 열은 자기를 덮는 합친 칸의
+     * 너비에서 이미 아는 열을 빼고 남은 만큼을 나눠 갖는다.
+     *
+     * <p>아는 열들의 평균으로 메우면 표가 쪽보다 넓어져 글이 잘린다 - 장기요양인정
+     * 신청서에서 640px 짜리 표가 942px 이 됐다(2026-10-26 실측). 그 서식의 1·2·3열은
+     * 너비 94.9px 짜리 합친 칸 하나로만 알 수 있는데, 평균을 넣으면 셋이 각각
+     * 104.7px 이 된다.
+     *
+     * <p>한 번에 안 풀리는 사슬이 있다. 합친 칸이 덮은 열을 또 다른 합친 칸이
+     * 덮는 경우라 열 수만큼 되풀이한다.
+     */
+    private List<Double> columnWidths(List<Span> spans, int columns) {
         if (columns <= 0) {
             return List.of();
         }
         Double[] widths = new Double[columns];
-        for (Row row : table.getRowList()) {
-            int at = 0;
-            for (Cell cell : row.getCellList()) {
-                var header = cell.getListHeader();
-                at = Math.max(at, header.getColIndex());
-                if (spanOf(header) == 1 && at < columns
-                        && header.getWidth() > 0 && widths[at] == null) {
-                    widths[at] = header.getWidth() / HWPUNIT_PER_PX;
-                }
-                at += spanOf(header);
+        for (Span span : spans) {
+            if (span.span() == 1 && span.at() >= 0 && span.at() < columns
+                    && span.width() > 0 && widths[span.at()] == null) {
+                widths[span.at()] = span.width();
             }
         }
-        // 단독으로 선 칸이 없는 열은 나머지 폭을 고르게 나눈다.
+
+        for (int round = 0; round < columns; round++) {
+            boolean changed = false;
+            for (Span span : spans) {
+                if (span.span() <= 1 || span.width() <= 0) {
+                    continue;
+                }
+                double rest = span.width();
+                int unknown = 0;
+                for (int i = span.at(); i < span.at() + span.span() && i < columns; i++) {
+                    if (i < 0) {
+                        continue;
+                    }
+                    if (widths[i] == null) {
+                        unknown += 1;
+                    } else {
+                        rest -= widths[i];
+                    }
+                }
+                if (unknown == 0 || rest <= 0) {
+                    continue;
+                }
+                double each = rest / unknown;
+                for (int i = span.at(); i < span.at() + span.span() && i < columns; i++) {
+                    if (i >= 0 && widths[i] == null) {
+                        widths[i] = each;
+                        changed = true;
+                    }
+                }
+            }
+            if (!changed) {
+                break;
+            }
+        }
+
         double known = 0;
         int missing = 0;
         for (Double one : widths) {
@@ -396,6 +513,7 @@ public class HwpIoService {
         if (missing == columns) {
             return List.of();
         }
+        // 여기까지 와서도 모르는 열은 합친 칸조차 덮지 않은 열이다. 그때만 평균을 쓴다.
         double each = missing == 0 ? 0 : Math.max(1, known / (columns - missing));
         List<Double> made = new ArrayList<>();
         for (Double one : widths) {
@@ -404,8 +522,12 @@ public class HwpIoService {
         return made;
     }
 
-    /** 칸 글자와 그 서식. 서식 자리는 칸 글자 안 자리다. */
-    private record CellContent(String text, String runs) {
+    /**
+     * 칸 글자와 그 서식. 서식 자리는 칸 글자 안 자리다.
+     *
+     * <p>{@code align} 은 칸 글의 가로 맞춤이다. 1 왼쪽 · 2 가운데 · 3 오른쪽.
+     */
+    private record CellContent(String text, String runs, int align, String styles) {
     }
 
     /**
@@ -430,14 +552,15 @@ public class HwpIoService {
             text.append(row.text());
             shiftRuns(runs, row.runs(), from);
         }
-        return new CellContent(text.toString(), runs.isEmpty() ? null : runs.toString());
+        return new CellContent(text.toString(), runs.isEmpty() ? null : runs.toString(),
+                alignOf(inner), stylesOf(inner));
     }
 
     /** 칸 안의 글자와 서식. hwp 쪽과 같은 뜻이다. */
     private CellContent hwpxCellContent(HWPXFile file,
             kr.dogfoot.hwpxlib.object.content.section_xml.paragraph.object.table.Tc cell) {
         if (cell.subList() == null) {
-            return new CellContent("", null);
+            return new CellContent("", null, DocTableDto.ALIGN_LEFT, null);
         }
         List<DocParagraphDto> inner = new ArrayList<>();
         List<DocTableDto> nested = new ArrayList<>();
@@ -454,7 +577,75 @@ public class HwpIoService {
             text.append(row.text());
             shiftRuns(runs, row.runs(), from);
         }
-        return new CellContent(text.toString(), runs.isEmpty() ? null : runs.toString());
+        return new CellContent(text.toString(), runs.isEmpty() ? null : runs.toString(),
+                alignOf(inner), stylesOf(inner));
+    }
+
+    /**
+     * 칸 안 문단마다의 서식을 줄 수만큼 담은 JSON 배열.
+     *
+     * <p>칸 글자는 줄바꿈으로 이어 붙인 한 덩이라 문단마다의 들여쓰기·맞춤을
+     * 담을 데가 없다. 그것을 여기에 따로 싣는다 - 자리는 칸 글의 줄 차례와 같다.
+     *
+     * <p>서식이 하나도 없으면 null 을 준다. 빈 배열을 실어도 뜻은 같지만 문서가
+     * 쓸데없이 커진다.
+     *
+     * <p><b>첫 줄 들여쓰기는 뺀다.</b> 파일에 적힌 값과 한글이 그리는 자리가 맞지
+     * 않는다 - 장기요양인정 신청서의 제목 넉 줄은 {@code 들여 18816}(250.9px)으로
+     * 적혀 있는데 한글은 글 영역에서 137px 만 들여 그린다(2026-10-26 실측: 미리보기
+     * 그림의 글자 자리를 쟀다). 적힌 값을 그대로 쓰면 넷째 줄이 642.5px 를 넘어
+     * 다음 줄로 밀리고, 줄 높이가 못박혀 있어 밀린 글자가 보이지 않는다. 까닭을
+     * 못 밝힌 값 때문에 글자가 사라지는 것보다, 자리가 덜 맞는 쪽이 낫다.
+     *
+     * <p>문단 단위(표 밖)의 들여쓰기는 그대로 둔다 - 거기는 줄 높이를 못박지 않아
+     * 넘친 글이 다음 줄로 보인다.
+     */
+    private String stylesOf(List<DocParagraphDto> inner) {
+        ArrayNode made = JSON.createArrayNode();
+        boolean any = false;
+        for (DocParagraphDto row : inner) {
+            if (row.style() == null || row.style().isBlank()) {
+                made.addNull();
+                continue;
+            }
+            var style = (ObjectNode) JSON.readTree(row.style());
+            var paragraphStyle = style.path("paragraphStyle");
+            if (paragraphStyle.isObject()) {
+                ((ObjectNode) paragraphStyle).remove("indentFirstLine");
+            }
+            made.add(style);
+            any = true;
+        }
+        return any ? made.toString() : null;
+    }
+
+    /**
+     * 칸 글의 가로 맞춤. 첫 문단을 따른다.
+     *
+     * <p>칸 안 문단마다 맞춤이 다를 수 있지만 화면은 칸 하나에 하나만 받는다.
+     * 첫 문단이 레이블인 경우가 대부분이라 그것을 따른다.
+     *
+     * <p>문단 서식은 Univer 모양 그대로의 JSON 이라 여기서 꺼내 읽는다. 맞춤을
+     * 따로 들고 다니면 같은 값을 두 군데 두게 된다.
+     */
+    private int alignOf(List<DocParagraphDto> inner) {
+        for (DocParagraphDto row : inner) {
+            if (row.style() == null || row.style().isBlank()) {
+                continue;
+            }
+            try {
+                // 맞춤은 paragraphStyle 안에 있다. 바깥에서 찾으면 늘 못 찾는다.
+                var node = JSON.readTree(row.style())
+                        .path("paragraphStyle").path("horizontalAlign");
+                if (!node.isMissingNode() && node.isInt()) {
+                    return node.asInt();
+                }
+            } catch (RuntimeException e) {
+                return DocTableDto.ALIGN_LEFT;
+            }
+            return DocTableDto.ALIGN_LEFT;
+        }
+        return DocTableDto.ALIGN_LEFT;
     }
 
     /** 문단 서식을 칸 글자 자리로 민다. 못 읽는 것은 버린다. */
@@ -540,12 +731,144 @@ public class HwpIoService {
                 var tc = tr.getTc(c);
                 CellContent content = hwpxCellContent(file, tc);
                 line.add(new Placed(content.text(), content.runs(), columnAt(tc),
-                        colSpanOf(tc), rowSpanOf(tc)));
+                        colSpanOf(tc), rowSpanOf(tc), hwpxShade(file, tc.borderFillIDRef()),
+                        content.align(), hwpxBorders(file, tc.borderFillIDRef()),
+                        content.styles()));
             }
             grid.add(line);
         }
         return spread(grid, afterParagraphNo, hwpxColumnWidths(table),
                 hwpxRowHeights(table), null);
+    }
+
+    /**
+     * 칸이 그은 변만 담은 JSON. 한 변도 안 그었으면 null 이다.
+     *
+     * <p>바탕색과 같은 칸모양(BorderFill)에서 나온다 - 한글은 둘을 한 덩이로 담는다.
+     *
+     * <p>굵기는 이름이 곧 밀리미터다({@code MM0_5} = 0.5mm). 그것을 px 로 바꾼다.
+     */
+    private String hwpBorders(DocInfo docInfo, int borderFillId) {
+        if (borderFillId <= 0 || borderFillId > docInfo.getBorderFillList().size()) {
+            return null;
+        }
+        var fill = docInfo.getBorderFillList().get(borderFillId - 1);
+        ObjectNode sides = JSON.createObjectNode();
+        putHwpEdge(sides, "top", fill.getTopBorder());
+        putHwpEdge(sides, "bottom", fill.getBottomBorder());
+        putHwpEdge(sides, "left", fill.getLeftBorder());
+        putHwpEdge(sides, "right", fill.getRightBorder());
+        return sides.isEmpty() ? null : sides.toString();
+    }
+
+    private void putHwpEdge(ObjectNode sides, String name,
+            kr.dogfoot.hwplib.object.docinfo.borderfill.EachBorder edge) {
+        if (edge == null || edge.getType() == null
+                || edge.getType() == kr.dogfoot.hwplib.object.docinfo.borderfill
+                        .BorderType.None) {
+            return;
+        }
+        ObjectNode one = JSON.createObjectNode();
+        one.put("color", edge.getColor() == null ? "#000000"
+                : String.format("#%02x%02x%02x", edge.getColor().getR(),
+                        edge.getColor().getG(), edge.getColor().getB()));
+        one.put("size", widthOf(edge.getThickness() == null
+                ? null : edge.getThickness().name()));
+        sides.set(name, one);
+    }
+
+    /**
+     * 선 굵기 이름을 px 로. 이름 안의 숫자가 밀리미터다 - {@code MM0_5} 와
+     * {@code MM_0_5} 가 둘 다 0.5mm 다(hwp 와 hwpx 의 이름이 다르다).
+     *
+     * <p>못 읽으면 가장 가는 선으로 본다. 굵기를 몰라 선을 지우는 것보다 낫다.
+     */
+    private double widthOf(String name) {
+        double thinnest = 0.1 / 25.4 * 96;
+        if (name == null) {
+            return thinnest;
+        }
+        java.util.regex.Matcher found = THICKNESS.matcher(name);
+        if (!found.find()) {
+            return thinnest;
+        }
+        double mm = Double.parseDouble(found.group(1) + "." + found.group(2));
+        return mm / 25.4 * 96;
+    }
+
+    /**
+     * 칸의 바탕색({@code #rrggbb}). 칠하지 않았으면 null 이다.
+     *
+     * <p>hwp(2진)와 담는 길이 다르다. 여기서는 번호가 아니라 문자열 아이디로
+     * 칸모양을 가리키고, 색도 이미 {@code #rrggbb} 문자열이다.
+     *
+     * <p>검정도 색으로 둔다 - {@link #rgbOf(String)} 은 글자용이라 검정을 버리는데,
+     * 칸은 일부러 검게 칠하기도 한다.
+     */
+    private String hwpxShade(HWPXFile file, String borderFillId) {
+        if (borderFillId == null || file.headerXMLFile() == null
+                || file.headerXMLFile().refList() == null
+                || file.headerXMLFile().refList().borderFills() == null) {
+            return null;
+        }
+        for (var fill : file.headerXMLFile().refList().borderFills().items()) {
+            if (!borderFillId.equals(fill.id())) {
+                continue;
+            }
+            if (fill.fillBrush() == null || fill.fillBrush().winBrush() == null) {
+                return null;
+            }
+            String color = fill.fillBrush().winBrush().faceColor();
+            if (color == null || color.isBlank() || !color.startsWith("#")) {
+                return null;
+            }
+            return color.toLowerCase(java.util.Locale.ROOT);
+        }
+        return null;
+    }
+
+    /** 칸이 그은 변. hwp 쪽과 같은 꼴이고, 색이 이미 문자열인 것만 다르다. */
+    private String hwpxBorders(HWPXFile file, String borderFillId) {
+        var fill = findHwpxBorderFill(file, borderFillId);
+        if (fill == null) {
+            return null;
+        }
+        ObjectNode sides = JSON.createObjectNode();
+        putHwpxEdge(sides, "top", fill.topBorder());
+        putHwpxEdge(sides, "bottom", fill.bottomBorder());
+        putHwpxEdge(sides, "left", fill.leftBorder());
+        putHwpxEdge(sides, "right", fill.rightBorder());
+        return sides.isEmpty() ? null : sides.toString();
+    }
+
+    private void putHwpxEdge(ObjectNode sides, String name,
+            kr.dogfoot.hwpxlib.object.content.header_xml.references.borderfill.Border edge) {
+        if (edge == null || edge.type() == null
+                || edge.type() == kr.dogfoot.hwpxlib.object.content.header_xml
+                        .enumtype.LineType2.NONE) {
+            return;
+        }
+        ObjectNode one = JSON.createObjectNode();
+        String color = edge.color();
+        one.put("color", color == null || !color.startsWith("#") ? "#000000"
+                : color.toLowerCase(java.util.Locale.ROOT));
+        one.put("size", widthOf(edge.width() == null ? null : edge.width().name()));
+        sides.set(name, one);
+    }
+
+    private kr.dogfoot.hwpxlib.object.content.header_xml.references.BorderFill
+            findHwpxBorderFill(HWPXFile file, String borderFillId) {
+        if (borderFillId == null || file.headerXMLFile() == null
+                || file.headerXMLFile().refList() == null
+                || file.headerXMLFile().refList().borderFills() == null) {
+            return null;
+        }
+        for (var fill : file.headerXMLFile().refList().borderFills().items()) {
+            if (borderFillId.equals(fill.id())) {
+                return fill;
+            }
+        }
+        return null;
     }
 
     /** 칸이 제 자리를 모르면 0 이다. 놓을 때 차례대로 밀린다. */
@@ -596,19 +919,24 @@ public class HwpIoService {
     }
 
     private List<Double> hwpxColumnWidths(Table table) {
-        if (table.countOfTr() == 0) {
-            return List.of();
-        }
-        Tr first = table.getTr(0);
-        List<Double> widths = new ArrayList<>();
-        for (int c = 0; c < first.countOfTc(); c++) {
-            var size = first.getTc(c).cellSz();
-            if (size == null || size.width() == null || size.width() <= 0) {
-                return List.of();
+        List<Span> spans = new ArrayList<>();
+        int columns = 0;
+        for (int r = 0; r < table.countOfTr(); r++) {
+            Tr tr = table.getTr(r);
+            int at = 0;
+            for (int c = 0; c < tr.countOfTc(); c++) {
+                var tc = tr.getTc(c);
+                at = Math.max(at, columnAt(tc));
+                int span = colSpanOf(tc);
+                var size = tc.cellSz();
+                double width = size == null || size.width() == null
+                        ? 0 : size.width() / HWPUNIT_PER_PX;
+                spans.add(new Span(at, span, width));
+                columns = Math.max(columns, at + span);
+                at += span;
             }
-            widths.add(size.width() / HWPUNIT_PER_PX);
         }
-        return widths;
+        return columnWidths(spans, columns);
     }
 
     /** 칸 안 글. 여러 문단이면 줄바꿈으로 잇는다. */
@@ -755,11 +1083,21 @@ public class HwpIoService {
         putIndent(paragraphStyle, "indentStart", shape.getLeftMargin());
         putIndent(paragraphStyle, "indentEnd", shape.getRightMargin());
         putIndent(paragraphStyle, "indentFirstLine", shape.getIndent());
-        if (paragraphStyle.isEmpty()) {
+        // 쪽 나눔은 paragraphStyle 밖, 맨 바깥에 적는다. docx 쪽이 쓰는 자리와
+        // 같아야 내보내기가 그대로 집어 간다(DocxIoService.opensNewPage).
+        boolean newPage = paragraph.getHeader() != null
+                && paragraph.getHeader().getDivideSort() != null
+                && paragraph.getHeader().getDivideSort().isDividePage();
+        if (paragraphStyle.isEmpty() && !newPage) {
             return null;
         }
         ObjectNode style = JSON.createObjectNode();
-        style.set("paragraphStyle", paragraphStyle);
+        if (!paragraphStyle.isEmpty()) {
+            style.set("paragraphStyle", paragraphStyle);
+        }
+        if (newPage) {
+            style.put("pageBreakBefore", 1);
+        }
         return style.toString();
     }
 
@@ -807,8 +1145,28 @@ public class HwpIoService {
         }
 
         return new DocParagraphDto(paragraphNo, text.toString(),
-                hwpxStyle(file, para.paraPrIDRef()),
+                withPageBreak(hwpxStyle(file, para.paraPrIDRef()),
+                        Boolean.TRUE.equals(para.pageBreak())),
                 runs.isEmpty() ? null : runs.toString());
+    }
+
+    /**
+     * 쪽 나눔 표시를 문단 서식에 얹는다.
+     *
+     * <p>{@code paragraphStyle} 안이 아니라 맨 바깥에 적는다 - 내보내기가 보는
+     * 자리와 같아야 한다({@code DocxIoService.opensNewPage}).
+     *
+     * <p>hwp(2진)는 문단 머리의 나눔 표시를, hwpx 는 문단의 {@code pageBreak}
+     * 속성을 쓴다. 담는 곳이 달라 길이 둘이다.
+     */
+    private String withPageBreak(String style, boolean newPage) {
+        if (!newPage) {
+            return style;
+        }
+        ObjectNode node = style == null || style.isBlank()
+                ? JSON.createObjectNode() : (ObjectNode) JSON.readTree(style);
+        node.put("pageBreakBefore", 1);
+        return node.toString();
     }
 
     private void appendHwpxText(Run run, StringBuilder text) {

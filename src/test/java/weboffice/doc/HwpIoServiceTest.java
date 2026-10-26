@@ -182,6 +182,168 @@ class HwpIoServiceTest {
     }
 
     @Test
+    void hwp_합친_칸으로만_아는_열의_너비를_나눠_갖는다() throws Exception {
+        // 관공서 서식에는 단독으로 선 적이 없는 열이 흔하다. 그 열을 "아는 열들의
+        // 평균" 으로 메우면 표가 쪽보다 넓어져 글이 잘린다(장기요양인정 신청서
+        // 실측: 640px 짜리 표가 942px 이 됐다). 합친 칸의 너비를 나눠 가져야 한다.
+        byte[] file = 시험파일.hwp(f -> {
+            var table = 시험파일.표(f, "넓은 칸", "합친 칸");
+            var cells = table.getRowList().get(0).getCellList();
+            cells.get(0).getListHeader().setColIndex((short) 0);
+            cells.get(0).getListHeader().setWidth(30000);
+            cells.get(1).getListHeader().setColIndex((short) 1);
+            cells.get(1).getListHeader().setColSpan((short) 2);
+            cells.get(1).getListHeader().setWidth(7500);
+        });
+
+        DocContent content = service.readHwp(file);
+
+        assertThat(content.tables().get(0).columnWidths())
+                .containsExactly(400d, 50d, 50d);
+    }
+
+    @Test
+    void hwp_칸_가로_맞춤을_가져온다() throws Exception {
+        // 서식의 레이블은 거의 다 가운데다. 맞춤이 빠지면 모두 왼쪽으로 붙어
+        // 칸마다 글이 제각각 어긋나 보인다.
+        byte[] file = 시험파일.hwp(f -> {
+            var table = 시험파일.표(f, "가운데", "왼쪽");
+            int 가운데 = 시험파일.가운데_문단모양(f);
+            table.getRowList().get(0).getCellList().get(0).getParagraphList()
+                    .getParagraph(0).getHeader().setParaShapeId(가운데);
+        });
+
+        DocContent content = service.readHwp(file);
+
+        assertThat(content.tables().get(0).cellAligns())
+                .containsExactly(java.util.List.of(2, 1));
+    }
+
+    @Test
+    void hwpx_칸_가로_맞춤을_가져온다() throws Exception {
+        byte[] file = 시험파일.hwpx(f -> {
+            var table = 시험파일.표(f, "가운데", "왼쪽");
+            String 가운데 = 시험파일.가운데_문단모양(f);
+            table.getTr(0).getTc(0).subList().getPara(0).paraPrIDRef(가운데);
+        });
+
+        DocContent content = service.readHwpx(file);
+
+        assertThat(content.tables().get(0).cellAligns())
+                .containsExactly(java.util.List.of(2, 1));
+    }
+
+    @Test
+    void hwp_쪽_나눔을_가져온다() throws Exception {
+        // 쪽 나눔을 흘리면 표지 다음 글이 표지 쪽으로 올라온다. 실거래가 가이드
+        // 실측(2026-10-26): 일곱 쪽짜리 표지가 본문과 한 쪽에 뭉쳤다.
+        byte[] file = 시험파일.hwp(f -> {
+            시험파일.문단(f, "표지");
+            시험파일.문단(f, "새 쪽").getHeader().getDivideSort().setDividePage(true);
+        });
+
+        List<DocParagraphDto> rows = service.fromHwp(file);
+
+        // 서식이 아예 없는 문단은 style 이 null 이다. 없는 것과 "쪽 나눔이 없다" 는
+        // 같은 뜻이라 빈 글로 바꿔 본다.
+        assertThat(java.util.Objects.toString(rows.get(0).style(), ""))
+                .doesNotContain("pageBreakBefore");
+        assertThat(rows.get(1).style()).contains("\"pageBreakBefore\":1");
+    }
+
+    @Test
+    void hwpx_쪽_나눔을_가져온다() throws Exception {
+        byte[] file = 시험파일.hwpx(f -> {
+            시험파일.문단(f, "표지");
+            시험파일.문단(f, "새 쪽").pageBreak(Boolean.TRUE);
+        });
+
+        List<DocParagraphDto> rows = service.readHwpx(file).paragraphs();
+
+        // 서식이 아예 없는 문단은 style 이 null 이다. 없는 것과 "쪽 나눔이 없다" 는
+        // 같은 뜻이라 빈 글로 바꿔 본다.
+        assertThat(java.util.Objects.toString(rows.get(0).style(), ""))
+                .doesNotContain("pageBreakBefore");
+        assertThat(rows.get(1).style()).contains("\"pageBreakBefore\":1");
+    }
+
+    @Test
+    void hwp_칸마다_그은_변만_가져온다() throws Exception {
+        // 서식은 네 변을 다 긋지 않는다. 가로줄만 긋고 세로선은 레이블 옆에만
+        // 두는 식이다. 표 하나에 변 하나만 담으면 모든 칸이 격자가 되어
+        // 장기요양인정 신청서가 딴 문서로 보인다(2026-10-26 비교).
+        byte[] file = 시험파일.hwp(f -> {
+            var table = 시험파일.표(f, "아래만", "선 없음");
+            int 아래선 = 시험파일.아래선_칸모양(f, 0xff, 0x00, 0x00,
+                    kr.dogfoot.hwplib.object.docinfo.borderfill.BorderThickness.MM0_5);
+            table.getRowList().get(0).getCellList().get(0)
+                    .getListHeader().setBorderFillId(아래선);
+        });
+
+        DocContent content = service.readHwp(file);
+
+        assertThat(content.tables().get(0).cellBorders().get(0).get(0))
+                .contains("\"bottom\"").contains("#ff0000")
+                .doesNotContain("\"top\"").doesNotContain("\"left\"");
+        assertThat(content.tables().get(0).cellBorders().get(0).get(1)).isNull();
+    }
+
+    @Test
+    void hwp_칸_안_문단마다_맞춤을_가져온다() throws Exception {
+        // 칸 글자는 줄바꿈으로 이어 붙인 한 덩이라 문단마다의 맞춤을 담을 데가
+        // 없었다. 칸 하나에 맞춤 하나만 두면 여러 문단이 든 칸이 다 같아진다.
+        byte[] file = 시험파일.hwp(f -> {
+            var table = 시험파일.표(f, "가운데", "보통");
+            table.getRowList().get(0).getCellList().get(0).getParagraphList()
+                    .getParagraph(0).getHeader()
+                    .setParaShapeId(시험파일.가운데_문단모양(f));
+        });
+
+        DocContent content = service.readHwp(file);
+
+        assertThat(content.tables().get(0).cellStyles().get(0).get(0))
+                .contains("\"horizontalAlign\":2");
+    }
+
+    @Test
+    void hwp_칸_안_문단의_첫줄_들여쓰기는_싣지_않는다() throws Exception {
+        // 파일에 적힌 값과 한글이 그리는 자리가 맞지 않는다 - 신청서 제목은
+        // 18816(250.9px)으로 적혀 있는데 한글은 137px 만 들여 그린다. 적힌 값을
+        // 그대로 쓰면 긴 줄이 칸을 넘어가고, 줄 높이가 못박혀 있어 넘친 글자가
+        // 사라진다(2026-10-26 실측). 자리가 덜 맞는 편이 낫다.
+        byte[] file = 시험파일.hwp(f -> {
+            var table = 시험파일.표(f, "제목", "보통");
+            int 들여쓴 = 시험파일.들여쓴_문단모양(f, 18816);
+            table.getRowList().get(0).getCellList().get(0).getParagraphList()
+                    .getParagraph(0).getHeader().setParaShapeId(들여쓴);
+        });
+
+        DocContent content = service.readHwp(file);
+
+        assertThat(content.tables().get(0).cellStyles())
+                .allSatisfy(row -> assertThat(row).allSatisfy(one ->
+                        assertThat(java.util.Objects.toString(one, ""))
+                                .doesNotContain("indentFirstLine")));
+    }
+
+    @Test
+    void hwp_칸_바탕색을_가져온다() throws Exception {
+        // 관공서 서식은 바탕색이 뜻을 담는다 - "어두운 란은 신청인이 적지
+        // 않습니다". 색이 빠지면 어디를 비워 둬야 하는지 알 길이 없어진다.
+        byte[] file = 시험파일.hwp(f -> {
+            var table = 시험파일.표(f, "접수번호", "접수일시");
+            int 회색 = 시험파일.바탕색_칸모양(f, 0xd9, 0xd9, 0xd9);
+            table.getRowList().get(0).getCellList().get(0)
+                    .getListHeader().setBorderFillId(회색);
+        });
+
+        DocContent content = service.readHwp(file);
+
+        assertThat(content.tables().get(0).cellShades())
+                .containsExactly(java.util.Arrays.asList("#d9d9d9", null));
+    }
+
+    @Test
     void hwp_표의_칸_너비를_가져온다() throws Exception {
         byte[] file = 시험파일.hwp(f -> {
             var table = 시험파일.표(f, "좁게", "넓게");
@@ -208,6 +370,20 @@ class HwpIoServiceTest {
 
         assertThat(rows.get(0).runs())
                 .contains("\"fs\":20").contains("\"rgb\":\"#ff0000\"");
+    }
+
+    @Test
+    void hwpx_칸_바탕색을_가져온다() throws Exception {
+        byte[] file = 시험파일.hwpx(f -> {
+            var table = 시험파일.표(f, "접수번호", "접수일시");
+            String 회색 = 시험파일.바탕색_칸모양(f, "#D9D9D9");
+            table.getTr(0).getTc(0).borderFillIDRef(회색);
+        });
+
+        DocContent content = service.readHwpx(file);
+
+        assertThat(content.tables().get(0).cellShades())
+                .containsExactly(java.util.Arrays.asList("#d9d9d9", null));
     }
 
     @Test

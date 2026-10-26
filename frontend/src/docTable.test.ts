@@ -632,6 +632,88 @@ describe('그은 변만 있는 표', () => {
   });
 });
 
+describe('칸 안 문단마다의 서식', () => {
+  it('문단마다 들여쓰기를 따로 준다', () => {
+    // 관공서 서식은 가운데 맞춤 대신 들여쓰기로 제목을 가운데쯤에 놓는다.
+    // 칸이 글자만 담으면 제목이 왼쪽에 붙는다(2026-10-26 비교: 신청서 제목 넉 줄).
+    const body = toBodyWithTables(
+      [{ paragraphNo: 0, text: '앞', style: null, runs: null }],
+      [{ afterParagraphNo: 0,
+        cells: [['첫 줄\n둘째 줄']],
+        cellStyles: [[JSON.stringify([
+          { paragraphStyle: { indentFirstLine: { v: 251 } } },
+          { paragraphStyle: { horizontalAlign: 2 } },
+        ])]] }],
+      [], 'wo-doc-1', 600);
+
+    const styles = (body.paragraphs ?? [])
+      .map((one) => (one.paragraphStyle ?? {}) as {
+        indentFirstLine?: { v: number }; horizontalAlign?: number;
+      });
+    expect(styles.some((s) => s.indentFirstLine?.v === 251)).toBe(true);
+    expect(styles.some((s) => s.horizontalAlign === 2)).toBe(true);
+  });
+
+  it('문단 서식이 없으면 칸 맞춤을 따른다', () => {
+    const body = toBodyWithTables(
+      [{ paragraphNo: 0, text: '앞', style: null, runs: null }],
+      [{ afterParagraphNo: 0, cells: [['가운데']], cellAligns: [[2]] }],
+      [], 'wo-doc-1', 600);
+
+    const styles = (body.paragraphs ?? [])
+      .map((one) => (one.paragraphStyle ?? {}) as { horizontalAlign?: number });
+    expect(styles.some((s) => s.horizontalAlign === 2)).toBe(true);
+  });
+});
+
+describe('칸마다 다른 테두리', () => {
+  it('칸마다 그은 변이 다르면 칸마다 따로 긋는다', () => {
+    // 관공서 서식은 가로줄만 긋고 세로선은 레이블 옆에만 둔다. 표 하나에 변
+    // 하나만 두면 모든 칸이 격자가 되어 딴 문서로 보인다(2026-10-26 비교:
+    // 장기요양인정 신청서).
+    const body = toBodyWithTables(
+      [{ paragraphNo: 0, text: '앞', style: null, runs: null }],
+      [{ afterParagraphNo: 0,
+        cells: [['왼쪽', '오른쪽']],
+        cellBorders: [[
+          JSON.stringify({ bottom: { size: 3, color: '#ff0000' } }),
+          null,
+        ]] }],
+      [], 'wo-doc-1', 600);
+
+    const table = Object.values(body.tableSource ?? {})[0] as {
+      tableRows: { tableCells: {
+        borderTop?: { color: { rgb: string }; width: { v: number } };
+        borderBottom?: { color: { rgb: string }; width: { v: number } };
+      }[] }[];
+    };
+    const [first, second] = table.tableRows[0].tableCells;
+    expect(first.borderBottom?.color.rgb).toBe('#ff0000');
+    expect(first.borderTop?.width.v).toBe(0);
+    // 자기 변이 없다고 적힌 칸은 네 변을 다 닫는다. 안 닫으면 화면 기본
+    // 격자가 살아나 옆 칸만 선이 다른 표가 된다.
+    expect(second.borderBottom?.width.v).toBe(0);
+    expect(second.borderTop?.width.v).toBe(0);
+  });
+
+  it('칸마다의 값이 없으면 표 전체 값을 따른다', () => {
+    const body = toBodyWithTables(
+      [{ paragraphNo: 0, text: '앞', style: null, runs: null }],
+      [{ afterParagraphNo: 0, cells: [['가', '나']],
+        borders: JSON.stringify({ bottom: { size: 2, color: '#0000ff' } }) }],
+      [], 'wo-doc-1', 600);
+
+    const table = Object.values(body.tableSource ?? {})[0] as {
+      tableRows: { tableCells: {
+        borderBottom?: { color: { rgb: string }; width: { v: number } };
+      }[] }[];
+    };
+    for (const cell of table.tableRows[0].tableCells) {
+      expect(cell.borderBottom?.color.rgb).toBe('#0000ff');
+    }
+  });
+});
+
 describe('못박지 않은 줄 높이', () => {
   it('글이 길면 늘어나게 둔다', () => {
     // 한글 줄 높이는 "이만큼 찼다" 는 뜻이다. 못박으면 글이 잘린다(2026-08-26).

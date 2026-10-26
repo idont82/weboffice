@@ -35,6 +35,16 @@ import java.util.List;
  * @param borders 그은 변만 담은 JSON({@code {"bottom":{"color":"#fc5e20","size":2.25}}}).
  *                네 변 가운데 아래만 긋는 제목 표가 흔한데, "선이 있다" 로만 담으면
  *                격자로 그려져 원본과 딴판이 된다(2026-08-26 지적).
+ *                표 하나에 하나다 - 칸마다 다르면 {@code cellBorders} 를 쓴다.
+ * @param cellBorders 칸마다 그은 변. {@code borders} 와 같은 꼴의 JSON 이고, 선을
+ *                안 그은 칸은 null 이다. 비어 있으면 표 전체가 {@code borders} 를
+ *                따른다. 한글 서식은 가로줄만 긋고 세로선은 레이블 옆에만 두는 식이라
+ *                표 단위로는 담기지 않는다(2026-10-26 비교: 신청서가 격자로 보였다).
+ * @param cellStyles 칸 안 <b>문단마다</b>의 서식. 칸 글의 줄 수만큼 담은 JSON 배열이고,
+ *                서식이 없는 문단 자리는 null 이다. 칸 글자는 줄바꿈으로 이어 붙인
+ *                한 덩이라 문단별 들여쓰기·맞춤을 담을 데가 없었다. 관공서 서식은
+ *                가운데 맞춤 대신 <b>들여쓰기</b>로 제목을 가운데쯤에 놓아서, 이것을
+ *                흘리면 제목이 왼쪽에 붙는다(2026-10-26 비교: 장기요양인정 신청서).
  */
 public record DocTableDto(int afterParagraphNo, List<List<String>> cells,
                           List<Double> columnWidths, List<List<String>> cellShades,
@@ -43,7 +53,36 @@ public record DocTableDto(int afterParagraphNo, List<List<String>> cells,
                           int align, List<Double> rowHeights,
                           List<List<Integer>> cellAligns, List<List<Double>> cellSpaces,
                           boolean opensNewPage, String borders,
-                          boolean exactRowHeights, CellMargin cellMargin) {
+                          boolean exactRowHeights, CellMargin cellMargin,
+                          List<List<String>> cellBorders, List<List<String>> cellStyles) {
+
+    public DocTableDto(int afterParagraphNo, List<List<String>> cells,
+                       List<Double> columnWidths, List<List<String>> cellShades,
+                       List<List<Integer>> columnSpans, List<List<Integer>> rowSpans,
+                       boolean hasBorders, List<List<String>> cellRuns,
+                       int align, List<Double> rowHeights,
+                       List<List<Integer>> cellAligns, List<List<Double>> cellSpaces,
+                       boolean opensNewPage, String borders,
+                       boolean exactRowHeights, CellMargin cellMargin) {
+        this(afterParagraphNo, cells, columnWidths, cellShades, columnSpans, rowSpans,
+                hasBorders, cellRuns, align, rowHeights, cellAligns, cellSpaces,
+                opensNewPage, borders, exactRowHeights, cellMargin, List.of(), List.of());
+    }
+
+    public DocTableDto(int afterParagraphNo, List<List<String>> cells,
+                       List<Double> columnWidths, List<List<String>> cellShades,
+                       List<List<Integer>> columnSpans, List<List<Integer>> rowSpans,
+                       boolean hasBorders, List<List<String>> cellRuns,
+                       int align, List<Double> rowHeights,
+                       List<List<Integer>> cellAligns, List<List<Double>> cellSpaces,
+                       boolean opensNewPage, String borders,
+                       boolean exactRowHeights, CellMargin cellMargin,
+                       List<List<String>> cellBorders) {
+        this(afterParagraphNo, cells, columnWidths, cellShades, columnSpans, rowSpans,
+                hasBorders, cellRuns, align, rowHeights, cellAligns, cellSpaces,
+                opensNewPage, borders, exactRowHeights, cellMargin, cellBorders,
+                List.of());
+    }
 
     /** 칸 안쪽 여백(px). */
     public record CellMargin(double left, double right, double top, double bottom) {

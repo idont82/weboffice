@@ -14,9 +14,15 @@ import kr.dogfoot.hwplib.object.bodytext.control.table.Cell;
 import kr.dogfoot.hwplib.object.bodytext.control.table.Row;
 import kr.dogfoot.hwplib.object.bodytext.paragraph.Paragraph;
 import kr.dogfoot.hwplib.object.bodytext.paragraph.text.HWPCharType;
+import kr.dogfoot.hwplib.object.docinfo.BorderFill;
+import kr.dogfoot.hwplib.object.docinfo.borderfill.BorderThickness;
+import kr.dogfoot.hwplib.object.docinfo.borderfill.BorderType;
+import kr.dogfoot.hwplib.object.docinfo.borderfill.EachBorder;
+import kr.dogfoot.hwplib.object.docinfo.borderfill.fillinfo.PatternType;
 import kr.dogfoot.hwplib.object.docinfo.CharShape;
 import kr.dogfoot.hwplib.object.docinfo.ParaShape;
 import kr.dogfoot.hwplib.object.docinfo.parashape.Alignment;
+import kr.dogfoot.hwplib.object.etc.Color4Byte;
 import kr.dogfoot.hwplib.writer.HWPWriter;
 import kr.dogfoot.hwpxlib.object.HWPXFile;
 import kr.dogfoot.hwpxlib.object.content.header_xml.enumtype.HorizontalAlign2;
@@ -111,6 +117,21 @@ final class HwpTestFiles {
         return file.getDocInfo().getParaShapeList().size() - 1;
     }
 
+    /**
+     * 첫 줄을 들여 쓴 문단모양. 한글은 길이를 1/7200 인치로 적는다.
+     *
+     * <p>관공서 서식은 가운데 맞춤 대신 들여쓰기로 제목을 가운데쯤에 놓는다.
+     * 장기요양인정 신청서의 제목 넉 줄이 그렇다(들여 18816 = 250.9px).
+     */
+    int 들여쓴_문단모양(HWPFile file, int hwpUnit) {
+        ParaShape indented = file.getDocInfo().getParaShapeList().get(0).clone();
+        indented.setIndent(hwpUnit);
+        file.getDocInfo().getParaShapeList().add(indented);
+        file.getDocInfo().getIDMappings()
+                .setParaShapeCount(file.getDocInfo().getParaShapeList().size());
+        return file.getDocInfo().getParaShapeList().size() - 1;
+    }
+
     /** 위아래 사이를 띄운 문단모양. 한글은 간격을 1/100 pt 로 적는다. */
     int 사이가_뜬_문단모양(HWPFile file) {
         ParaShape spaced = file.getDocInfo().getParaShapeList().get(0).clone();
@@ -158,6 +179,55 @@ final class HwpTestFiles {
     }
 
     /** 한 줄짜리 표. 칸마다 글이 한 문단씩 들어간다. */
+    /**
+     * 바탕색을 칠한 칸 모양을 하나 만들고 번호를 준다.
+     *
+     * <p>한글은 칸의 바탕색과 네 변을 <b>칸 모양(BorderFill) 하나</b>에 같이 담고,
+     * 칸은 번호로 그것을 가리킨다. 번호는 1부터다 - 0 은 "가리키지 않음" 이다.
+     */
+    int 바탕색_칸모양(HWPFile file, int r, int g, int b) {
+        BorderFill fill = file.getDocInfo().addNewBorderFill();
+        // 갓 만든 칸모양은 네 변이 비어 있다. 비운 채로 저장하면 writer 가 변의
+        // 종류를 읽다 터진다 - 색만 쓰고 싶어도 변은 채워 둬야 한다.
+        for (EachBorder border : new EachBorder[] {fill.getLeftBorder(),
+                fill.getRightBorder(), fill.getTopBorder(), fill.getBottomBorder(),
+                fill.getDiagonalBorder()}) {
+            border.setType(BorderType.None);
+            border.setThickness(BorderThickness.MM0_1);
+        }
+        fill.getFillInfo().getType().setPatternFill(true);
+        fill.getFillInfo().createPatternFill();
+        // 무늬 없이 색만 칠한다. 무늬 종류도 비워 두면 writer 가 터진다.
+        fill.getFillInfo().getPatternFill().setPatternType(PatternType.None);
+        Color4Byte back = fill.getFillInfo().getPatternFill().getBackColor();
+        back.setR((short) r);
+        back.setG((short) g);
+        back.setB((short) b);
+        return file.getDocInfo().getBorderFillList().size();
+    }
+
+    /**
+     * 아래 변만 그은 칸모양을 만들고 번호를 준다.
+     *
+     * <p>관공서 서식은 네 변을 다 긋지 않는다 - 가로줄만 긋고 세로선은 레이블
+     * 옆에만 두는 식이다. 그래서 "아래만" 이 시험할 값이다.
+     */
+    int 아래선_칸모양(HWPFile file, int r, int g, int b, BorderThickness thickness) {
+        BorderFill fill = file.getDocInfo().addNewBorderFill();
+        for (EachBorder border : new EachBorder[] {fill.getLeftBorder(),
+                fill.getRightBorder(), fill.getTopBorder(), fill.getDiagonalBorder()}) {
+            border.setType(BorderType.None);
+            border.setThickness(BorderThickness.MM0_1);
+        }
+        EachBorder bottom = fill.getBottomBorder();
+        bottom.setType(BorderType.Solid);
+        bottom.setThickness(thickness);
+        bottom.getColor().setR((short) r);
+        bottom.getColor().setG((short) g);
+        bottom.getColor().setB((short) b);
+        return file.getDocInfo().getBorderFillList().size();
+    }
+
     ControlTable 표(HWPFile file, String... cells) {
         Section section = file.getBodyText().getSectionList().get(0);
         Paragraph holder = 빈_문단(section);
@@ -322,6 +392,27 @@ final class HwpTestFiles {
             글토막(para, text);
         }
         return table;
+    }
+
+    /**
+     * 바탕색을 칠한 칸모양을 하나 더 두고 그 아이디를 준다.
+     *
+     * <p>hwpx 는 번호가 아니라 문자열 아이디로 가리키고, 색도 {@code #rrggbb}
+     * 문자열이다. hwp(2진)와 담는 방식이 다르니 길을 따로 둔다.
+     */
+    String 바탕색_칸모양(HWPXFile file, String rgb) {
+        kr.dogfoot.hwpxlib.object.content.header_xml.references.BorderFill fill =
+                file.headerXMLFile().refList().borderFills().get(0).clone();
+        fill.id("100");
+        if (fill.fillBrush() == null) {
+            fill.createFillBrush();
+        }
+        if (fill.fillBrush().winBrush() == null) {
+            fill.fillBrush().createWinBrush();
+        }
+        fill.fillBrush().winBrush().faceColor(rgb);
+        file.headerXMLFile().refList().borderFills().add(fill);
+        return fill.id();
     }
 
     String 가운데_문단모양(HWPXFile file) {
