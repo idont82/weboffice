@@ -19,7 +19,7 @@
 
     <properties>
         <java.version>21</java.version>
-        <poi.version>5.2.5</poi.version>
+        <poi.version>5.5.1</poi.version>
         <hwplib.version>1.1.10</hwplib.version>
         <hwpxlib.version>1.0.9</hwpxlib.version>
         <!-- 내장 PostgreSQL 바이너리. 아래 프로필 넷이 같은 값을 쓴다. -->

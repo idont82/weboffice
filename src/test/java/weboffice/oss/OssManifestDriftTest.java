@@ -246,7 +246,7 @@ class OssManifestDriftTest {
     @Test
     void pom_을_읽으면_좌표가_나온다() {
         assertThat(javaDeclared).containsKey("org.apache.poi:poi-ooxml");
-        assertThat(javaDeclared.get("org.apache.poi:poi-ooxml")).isEqualTo("5.2.5");
+        assertThat(javaDeclared.get("org.apache.poi:poi-ooxml")).isEqualTo("5.5.1");
         assertThat(javaDeclared).containsKey("org.springframework.boot:spring-boot-starter-web");
         assertThat(javaDeclared.get("org.springframework.boot:spring-boot-starter-web")).isNull();
         assertThat(javaDeclared).containsKey("com.github.eirslett:frontend-maven-plugin");

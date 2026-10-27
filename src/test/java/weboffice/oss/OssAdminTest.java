@@ -66,7 +66,7 @@ class OssAdminTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[*].name").value(hasItems("Univer", "Apache POI")))
                 .andExpect(jsonPath("$.items[*].license").value(hasItem("Apache-2.0")))
-                .andExpect(jsonPath("$.items[*].version").value(hasItem("5.2.5")))
+                .andExpect(jsonPath("$.items[*].version").value(hasItem("5.5.1")))
                 .andExpect(jsonPath("$.items[*].what").value(hasItem(
                         containsString("편집기 본체"))));
     }

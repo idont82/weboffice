@@ -49,7 +49,7 @@
   {
     "coords": ["org.apache.poi:poi-ooxml"],
     "name": "Apache POI",
-    "version": "5.2.5",
+    "version": "5.5.1",
     "license": "Apache-2.0",
     "url": "https://poi.apache.org/",
     "side": "BACKEND",
