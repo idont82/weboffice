@@ -269,6 +269,43 @@ describe('toBodyWithTables', () => {
     expect(body.textRuns[0]).toMatchObject({ st: at, ed: at + 2, ts: { bl: 1 } });
   });
 
+  it('줄 끝 공백을 떼도 글자 서식 자리가 안 밀린다', () => {
+    // 칸 글자를 다듬으면서 줄 끝 공백을 뗀다. 서식 자리를 같이 밀지 않으면
+    // 다음 줄 첫 글자가 서식 밖으로 떨어져 혼자 작게 그려진다
+    // (2026-10-27 비교: 제목 상자의 '오'·'아' 가 깨알만 했다).
+    const body = toBodyWithTables([], [{
+      afterParagraphNo: -1,
+      cells: [['제목 \n둘째 줄']],
+      cellRuns: [[JSON.stringify([
+        { st: 0, ed: 3, ts: { fs: 25 } },
+        { st: 4, ed: 8, ts: { fs: 25 } },
+      ])]],
+    }]);
+
+    const at = body.dataStream.indexOf('둘째');
+    expect(body.textRuns[1]).toMatchObject({ st: at, ed: at + 4 });
+  });
+
+  it('빈 줄이 낀 제목 상자도 자리가 안 밀린다', () => {
+    // 실제 제목 상자다. 첫 줄 끝 공백 하나 때문에 '오'·'아' 가 서식 밖으로
+    // 떨어져 10pt 로 그려졌다(2026-10-27 비교: 아파트 매매 실거래가 기술문서).
+    const body = toBodyWithTables([], [{
+      afterParagraphNo: -1,
+      cells: [['국토교통부 실거래가 정보 \n오픈API 활용 가이드\n\n아파트 매매 실거래가 자료 -']],
+      cellRuns: [[JSON.stringify([
+        { st: 0, ed: 14, ts: { fs: 25 } },
+        { st: 15, ed: 27, ts: { fs: 25 } },
+        { st: 29, ed: 45, ts: { fs: 21 } },
+      ])]],
+    }]);
+
+    const big = body.textRuns.filter((one) => (one.ts as { fs?: number }).fs === 25);
+    const small = body.textRuns.filter((one) => (one.ts as { fs?: number }).fs === 21);
+    expect(body.dataStream.slice(big[1].st, big[1].ed)).toBe('오픈API 활용 가이드');
+    expect(body.dataStream.slice(small[0].st, small[0].ed))
+      .toBe('아파트 매매 실거래가 자료 -');
+  });
+
   it('칸 바탕색을 그대로 쓴다', () => {
     // 머리 줄이 회색인 표가 흔하다. 바탕색이 빠지면 어느 줄이 머리인지 안 보인다.
     const body = toBodyWithTables([], [{

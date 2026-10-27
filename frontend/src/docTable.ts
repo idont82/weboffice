@@ -245,19 +245,110 @@ function tableAlign(align: number | undefined): number {
 /** 본문 폭. A4 에서 좌우 여백을 뺀 값이다(ruler 의 PAGE 와 같은 셈). */
 export const BODY_WIDTH = 794 - Math.round((96 / 2.54) * 2.5) * 2;
 
+/** 다듬은 칸 글자와, 옛 자리를 새 자리로 옮기는 표. */
+interface CleanCell {
+  text: string;
+  /** 옛 자리 i 의 새 자리. 길이는 옛 글자 수 + 1 이라 끝 자리도 옮긴다. */
+  at: number[];
+}
+
+/** 칸 안 문단을 가르는 글자 말고는 모두 제어문자로 본다. */
+// eslint-disable-next-line no-control-regex
+const CONTROL = /[\u0000-\u0009\u000b-\u001f]/;
+
+/** 빈칸 하나. 줄 앞뒤에서 떼어 낼 글자를 가린다. */
+const BLANK = /\s/;
+
 /**
  * 칸 글자에서 제어문자를 뗀다.
  *
  * <p>줄바꿈 하나가 섞이면 Univer 가 구역 끝으로 읽어 문서 얼개가 무너진다.
  * 칸 안 문단을 가르는 글자만 남기고 모두 공백으로 바꾼다 - 그것까지 지우면
  * 표가 원본보다 낮아져 뒷글이 앞 쪽으로 올라온다(2026-08-25 지적).
+ *
+ * <p><b>글자를 떼면 서식 자리도 같이 밀어야 한다.</b> 서버가 적어 둔 서식 자리는
+ * 다듬기 전 글자를 센 값이다. 줄 끝 공백 하나만 떼어도 그 뒤가 통째로 한 자리씩
+ * 어긋나, 다음 줄 첫 글자가 서식 밖으로 떨어져 혼자 작게 그려진다
+ * (2026-10-27 비교: 제목 상자의 '오'·'아' 가 깨알만 했다). 그래서 다듬은 글자와
+ * 자리 표를 함께 돌려준다.
  */
-function clean(text: string): string {
-  return text.split(CELL_LINE_BREAK)
-    // eslint-disable-next-line no-control-regex
-    .map((line) => line.replace(/[\u0000-\u0009\u000b-\u001f]+/g, ' ').trim())
-    .join(CELL_LINE_BREAK)
-    .trim();
+function clean(text: string): CleanCell {
+  const kept: (string | null)[] = new Array(text.length).fill(null);
+  let control = false;
+  for (let i = 0; i < text.length; i += 1) {
+    const char = text[i];
+    if (char === CELL_LINE_BREAK) {
+      kept[i] = char;
+      control = false;
+    } else if (CONTROL.test(char)) {
+      // 잇따른 제어문자는 공백 하나로 모은다.
+      kept[i] = control ? null : ' ';
+      control = true;
+    } else {
+      kept[i] = char;
+      control = false;
+    }
+  }
+  trimLines(kept);
+  trimEdges(kept, 0, kept.length);
+
+  const at: number[] = new Array(text.length + 1).fill(0);
+  let made = '';
+  for (let i = 0; i < text.length; i += 1) {
+    at[i] = made.length;
+    const one = kept[i];
+    if (one != null) {
+      made += one;
+    }
+  }
+  at[text.length] = made.length;
+  return { text: made, at };
+}
+
+/** 줄마다 앞뒤 빈칸을 뗀다. 줄을 가르는 글자는 그대로 둔다. */
+function trimLines(kept: (string | null)[]): void {
+  let from = 0;
+  for (let i = 0; i <= kept.length; i += 1) {
+    if (i === kept.length || kept[i] === CELL_LINE_BREAK) {
+      trimEdges(kept, from, i);
+      from = i + 1;
+    }
+  }
+}
+
+/** {@code [from, to)} 안에서 앞뒤 빈칸을 뗀다. 이미 뗀 자리는 건너뛴다. */
+function trimEdges(kept: (string | null)[], from: number, to: number): void {
+  for (let i = from; i < to; i += 1) {
+    const one = kept[i];
+    if (one == null) {
+      continue;
+    }
+    if (!BLANK.test(one)) {
+      break;
+    }
+    kept[i] = null;
+  }
+  for (let i = to - 1; i >= from; i -= 1) {
+    const one = kept[i];
+    if (one == null) {
+      continue;
+    }
+    if (!BLANK.test(one)) {
+      break;
+    }
+    kept[i] = null;
+  }
+}
+
+/** 다듬기 전 자리를 다듬은 뒤 자리로. 표 밖을 가리키면 양 끝으로 붙인다. */
+function shifted(at: number[], index: number): number {
+  if (index <= 0) {
+    return at[0] ?? 0;
+  }
+  if (index >= at.length) {
+    return at[at.length - 1] ?? 0;
+  }
+  return at[index];
 }
 
 /**
@@ -496,12 +587,17 @@ export function toBodyWithTables(rows: DocParagraph[], tables: DocTable[],
           // 서식이 빠지면 머리와 본문이 같아 보인다.
           const cellFrom = stream.length;
           for (const run of parseRuns(table.cellRuns?.[rowNo]?.[columnNo] ?? null)) {
-            textRuns.push(withUsableFont(withDefaultFont(
-              { ...run, st: run.st + cellFrom, ed: run.ed + cellFrom }, defaultFont)));
+            // 다듬으면서 떼어 낸 글자만큼 자리를 민다.
+            const st = cellFrom + shifted(cell.at, run.st);
+            const ed = cellFrom + shifted(cell.at, run.ed);
+            if (ed <= st) {
+              continue;
+            }
+            textRuns.push(withUsableFont(withDefaultFont({ ...run, st, ed }, defaultFont)));
           }
           // 못박은 줄의 빈 칸은 글자 상자도 눌러 둔다. 크기를 그대로 두면 그
           // 상자가 줄 높이를 밀어 올려 색 막대가 네 배로 두꺼워진다.
-          if (cell === '' && (table.rowHeights?.[rowNo] ?? 0) > 0) {
+          if (cell.text === '' && (table.rowHeights?.[rowNo] ?? 0) > 0) {
             textRuns.push({ st: cellFrom, ed: cellFrom + 1,
               ts: { fs: SQUEEZED_CELL_FONT } } as never);
           }
@@ -511,7 +607,7 @@ export function toBodyWithTables(rows: DocParagraph[], tables: DocTable[],
             defaultFont, ratioOf, table.rowHeights?.[rowNo]);
           // 칸 안 줄 나눔마다 문단을 만든다. 한 줄로 이으면 원본보다 표가 낮아져
           // 뒷글이 앞 쪽으로 올라온다(2026-08-25 지적: 박스가 다음 쪽으로 넘어간다).
-          const cellLines = cell.split(CELL_LINE_BREAK);
+          const cellLines = cell.text.split(CELL_LINE_BREAK);
           // 칸 안 문단마다의 서식. 없으면 칸 하나의 맞춤으로 물러선다 - 머릿글
           // 표가 쓰는 것과 같은 값이다.
           const lineStyles = innerStyles(table.cellStyles?.[rowNo]?.[columnNo]);
