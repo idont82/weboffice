@@ -27,6 +27,10 @@ describe('api', () => {
     expect(url).toContain('toColumnNo=4');
   });
 
+  it('hwpx 내려받기 주소를 만든다', () => {
+    expect(createApi().docExportHwpxUrl(7)).toBe('/api/docs/7/export/hwpx');
+  });
+
   it('세션 쿠키가 함께 가도록 credentials 를 붙인다', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch')
       .mockResolvedValue(jsonResponse({ styles: [], cells: [] }));

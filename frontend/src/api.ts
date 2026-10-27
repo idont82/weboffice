@@ -373,6 +373,11 @@ export function createApi() {
       return `/api/docs/${workbookSeq}/export`;
     },
 
+    /** 한글 문서로 내려받는 주소. 받는 쪽이 한글이면 docx 보다 덜 어긋난다. */
+    docExportHwpxUrl(workbookSeq: number) {
+      return `/api/docs/${workbookSeq}/export/hwpx`;
+    },
+
     async readParagraphs(workbookSeq: number): Promise<DocParagraph[]> {
       return (await ensureOk(await fetch(`/api/docs/${workbookSeq}/paragraphs`, send()))).json();
     },

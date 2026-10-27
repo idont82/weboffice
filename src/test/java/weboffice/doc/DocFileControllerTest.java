@@ -52,6 +52,9 @@ class DocFileControllerTest {
     private DocxIoService docxIoService;
 
     @Autowired
+    private HwpIoService hwpIoService;
+
+    @Autowired
     private DrmCodec drmCodec;
 
     @Autowired
@@ -119,6 +122,85 @@ class DocFileControllerTest {
         assertThat(java.net.URLDecoder.decode(
                 disposition.substring(disposition.indexOf("filename*=UTF-8''") + 17),
                 java.nio.charset.StandardCharsets.UTF_8)).endsWith(".docx");
+    }
+
+    @Test
+    void hwpx_로_내려받는다() throws Exception {
+        long seq = 올린다();
+
+        byte[] body = mockMvc.perform(get("/api/docs/{seq}/export/hwpx", seq))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsByteArray();
+
+        byte[] plain = drmCodec.decrypt(body, "보고서.hwpx");
+        assertThat(new String(plain, 0, 2))
+                .as("hwpx 는 zip 이다").isEqualTo("PK");
+        assertThat(hwpIoService.readHwpx(plain).paragraphs()).isNotEmpty();
+    }
+
+    @Test
+    void 내려받는_hwpx_이름에_확장자를_붙인다() throws Exception {
+        long seq = 올린다();
+
+        assertThat(내려받는_이름(seq, "/api/docs/{seq}/export/hwpx")).endsWith(".hwpx");
+    }
+
+    @Test
+    void 이름에_쓸_수_없는_글자는_밑줄이_된다() throws Exception {
+        long seq = 올린다();
+        제목을_바꾼다(seq, "가/나");
+
+        assertThat(내려받는_이름(seq, "/api/docs/{seq}/export/hwpx")).isEqualTo("가_나.hwpx");
+    }
+
+    @Test
+    void 이름이_비면_문서로_떨어진다() throws Exception {
+        // 점과 빈칸만 남는 제목이다. 확장자를 인자로 바꾸면서 이 길이 끊기기 쉽다.
+        long seq = 올린다();
+        제목을_바꾼다(seq, " ... ");
+
+        assertThat(내려받는_이름(seq, "/api/docs/{seq}/export/hwpx")).isEqualTo("문서.hwpx");
+        assertThat(내려받는_이름(seq, "/api/docs/{seq}/export")).isEqualTo("문서.docx");
+    }
+
+    @Test
+    void docx_내려받기가_표를_그대로_싣는다() throws Exception {
+        // 조각 모으기를 한 벌로 뽑으면서 열 자리 가운데 하나라도 흘리면 여기서 걸린다.
+        long seq = 표가_든_문서를_올린다();
+
+        byte[] body = mockMvc.perform(get("/api/docs/{seq}/export", seq))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsByteArray();
+
+        byte[] plain = drmCodec.decrypt(body, "표.docx");
+        try (var document = new org.apache.poi.xwpf.usermodel.XWPFDocument(
+                new java.io.ByteArrayInputStream(plain))) {
+            assertThat(document.getTables()).hasSize(1);
+            assertThat(document.getTables().get(0).getRow(1).getCell(1).getText())
+                    .isEqualTo("접근 통제");
+        }
+    }
+
+    private String 내려받는_이름(long seq, String url) throws Exception {
+        String disposition = mockMvc.perform(get(url, seq))
+                .andReturn().getResponse().getHeader(HttpHeaders.CONTENT_DISPOSITION);
+        return java.net.URLDecoder.decode(
+                disposition.substring(disposition.indexOf("filename*=UTF-8''") + 17),
+                java.nio.charset.StandardCharsets.UTF_8);
+    }
+
+    private void 제목을_바꾼다(long seq, String name) {
+        jdbcTemplate.update(
+                "update wo_workbook_master set workbook_name = ? where workbook_seq = ?",
+                name, seq);
+    }
+
+    private long 표가_든_문서를_올린다() throws Exception {
+        var withTable = new MockMultipartFile("file", "표.docx", DOCX_MIME, 표가_든_docx());
+        String body = mockMvc.perform(multipart("/api/docs/import").file(withTable))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        return com.jayway.jsonpath.JsonPath.parse(body).read("$.workbookSeq", Long.class);
     }
 
     @Test

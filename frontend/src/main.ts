@@ -2676,6 +2676,12 @@ function downloadDoc() {
   location.href = api.docExportUrl(openDocSeq);
 }
 
+/** 지금 글 문서를 hwpx 로 내려받는다. 받는 쪽이 한글이면 이쪽이 덜 어긋난다. */
+function downloadDocHwpx() {
+  if (openDocSeq == null) return;
+  location.href = api.docExportHwpxUrl(openDocSeq);
+}
+
 /** 지금 문서를 xlsx 로 내려받는다. 서버가 DB 에서 뽑으므로 다른 사람의 변경도 담긴다. */
 function downloadWorkbook() {
   if (!open) return;
@@ -5478,6 +5484,8 @@ function renderMenuBar(kind: DocKind) {
         icon: menuIcons.download, separated: true,
         run: () => (kind === 'DOC' ? downloadDoc() : downloadWorkbook()),
         enabled: () => (kind === 'DOC' ? openDocSeq != null : open != null) },
+      ...(kind === 'DOC' ? [{ label: '다운로드 (hwpx)', icon: menuIcons.download,
+        run: downloadDocHwpx, enabled: () => openDocSeq != null }] : []),
     ],
   };
 

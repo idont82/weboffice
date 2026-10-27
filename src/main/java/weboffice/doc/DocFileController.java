@@ -27,9 +27,9 @@ import weboffice.workbook.WorkbookService;
 /**
  * 글 문서 올리기·내려받기.
  *
- * <p>올리는 것은 docx·hwp·hwpx 셋이고 내려받는 것은 docx 하나다. 한글 형식으로
- * 되돌려 주지 않는다 - 표·글상자·그림까지 다 옮기지 못하는데 한글 이름을 붙여 주면
- * 받은 사람은 원본이 깨진 줄 안다.
+ * <p>올리는 것도 내려받는 것도 docx·hwpx 다. 받는 쪽이 한글을 쓰면 docx 를 한글에서
+ * 열어 다시 저장해야 하는데, 그 자리에서 표 테두리와 줄 간격이 한 번 더 어긋난다.
+ * 옛 .hwp 로는 안 내보낸다 - hwpx 가 한글 2010 부터 열리는 공공 표준이다.
  *
  * <p>xlsx 와 같은 규칙이다. 사내 파일은 문서보안이 걸린 채로 올라오므로 풀어서
  * 읽고, 내려줄 때는 씌워서 준다. 실패하면 500 이다 - 평문으로 대신 주지 않는다.
@@ -71,8 +71,12 @@ public class DocFileController {
     private static final String DOCX_MIME =
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
+    /** 한글 문서(hwpx)의 종류. 한글이 제 파일에 적어 두는 것과 같다. */
+    private static final String HWPX_MIME = "application/hwp+zip";
+
     private final DocxIoService docxIoService;
     private final HwpIoService hwpIoService;
+    private final HwpxWriteService hwpxWriteService;
     private final DocParagraphMapper paragraphMapper;
     private final WorkbookService workbookService;
     private final WorkbookPermissionService permissionService;
@@ -81,6 +85,7 @@ public class DocFileController {
     private final weboffice.drawing.ImageService imageService;
 
     public DocFileController(DocxIoService docxIoService, HwpIoService hwpIoService,
+                             HwpxWriteService hwpxWriteService,
                              DocParagraphMapper paragraphMapper,
                              WorkbookService workbookService,
                              WorkbookPermissionService permissionService, DrmCodec drmCodec,
@@ -88,6 +93,7 @@ public class DocFileController {
                              weboffice.drawing.ImageService imageService) {
         this.docxIoService = docxIoService;
         this.hwpIoService = hwpIoService;
+        this.hwpxWriteService = hwpxWriteService;
         this.paragraphMapper = paragraphMapper;
         this.workbookService = workbookService;
         this.permissionService = permissionService;
@@ -135,24 +141,73 @@ public class DocFileController {
     public ResponseEntity<byte[]> exportDocx(@PathVariable Long workbookSeq) throws IOException {
         permissionService.requireReadWorkbook(workbookSeq);
 
-        byte[] docx = docxIoService.toDocx(paragraphMapper.selectParagraphs(workbookSeq),
+        DocContent content = savedContent(workbookSeq);
+        byte[] docx = docxIoService.toDocx(content.paragraphs(),
+                content.tables(), drawings(content.pictures()),
+                content.page(), content.header(), content.footer(),
+                content.defaults(), content.titlePage(),
+                content.firstHeader(), content.firstFooter());
+
+        return sealed(workbookSeq, docx, "docx", DOCX_MIME);
+    }
+
+    /**
+     * 한글 문서(hwpx)로 내려받는다.
+     *
+     * <p>길을 따로 내는 까닭: 내주는 종류가 다르고 파일 이름 확장자가 다르다.
+     * 물음표 뒤 형식으로 가르면 두 갈래가 한 함수 안에서 엉킨다.
+     */
+    @GetMapping(value = "/api/docs/{workbookSeq}/export/hwpx", produces = HWPX_MIME)
+    public ResponseEntity<byte[]> exportHwpx(@PathVariable Long workbookSeq) {
+        permissionService.requireReadWorkbook(workbookSeq);
+
+        byte[] hwpx = hwpxWriteService.toHwpx(savedContent(workbookSeq));
+
+        return sealed(workbookSeq, hwpx, "hwpx", HWPX_MIME);
+    }
+
+    /**
+     * 담아 둔 조각을 글 한 벌로 모은다.
+     *
+     * <p>내보내는 길이 둘이 되면서 열 자리를 두 군데서 모으게 됐다. 한 군데서만
+     * 모은다 - 한쪽에만 자리를 더하면 다른 쪽 파일에서 그것이 조용히 빠진다.
+     *
+     * <p>그림 알맹이는 저장소에서 한 번만 꺼낸다 - 내보내는 길이 둘이라고 두 번
+     * 읽으면 큰 문서에서 그만큼 느려진다.
+     */
+    private DocContent savedContent(Long workbookSeq) {
+        return new DocContent(paragraphMapper.selectParagraphs(workbookSeq),
                 savedTables(workbookSeq), savedPictures(workbookSeq),
                 savedOne(workbookSeq, IMPORT_PAGE, DocContent.DocPage.class),
                 savedOne(workbookSeq, IMPORT_HEADER, DocContent.DocEdge.class),
                 savedOne(workbookSeq, IMPORT_FOOTER, DocContent.DocEdge.class),
-                savedOne(workbookSeq, IMPORT_DEFAULTS, DocContent.DocDefaults.class),
                 savedResource(workbookSeq, IMPORT_TITLE_PAGE) != null,
                 savedOne(workbookSeq, IMPORT_FIRST_HEADER, DocContent.DocEdge.class),
-                savedOne(workbookSeq, IMPORT_FIRST_FOOTER, DocContent.DocEdge.class));
-        String fileName = fileNameOf(workbookSeq);
-        byte[] sealed = drmCodec.encrypt(docx, fileName, UserContext.currentAuditUser().userKey());
+                savedOne(workbookSeq, IMPORT_FIRST_FOOTER, DocContent.DocEdge.class),
+                savedOne(workbookSeq, IMPORT_DEFAULTS, DocContent.DocDefaults.class));
+    }
+
+    /** 워드 내보내기가 쓰는 그림 모양으로 바꾼다. 담긴 값은 같다. */
+    private List<DocxIoService.Drawing> drawings(List<DocContent.DocPicture> pictures) {
+        return pictures.stream()
+                .map(one -> new DocxIoService.Drawing(one.afterParagraphNo(), one.bytes(),
+                        one.width(), one.height(), one.floating(), one.behind(),
+                        one.left(), one.top()))
+                .toList();
+    }
+
+    /** 문서보안을 씌워 내려준다. 실패하면 막는다 - 평문으로 대신 주지 않는다. */
+    private ResponseEntity<byte[]> sealed(Long workbookSeq, byte[] made,
+                                          String extension, String mime) {
+        String fileName = fileNameOf(workbookSeq, extension);
+        byte[] sealed = drmCodec.encrypt(made, fileName, UserContext.currentAuditUser().userKey());
 
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION,
                         ContentDisposition.attachment()
                                 .filename(fileName, StandardCharsets.UTF_8)
                                 .build().toString())
-                .contentType(MediaType.parseMediaType(DOCX_MIME))
+                .contentType(MediaType.parseMediaType(mime))
                 .body(sealed);
     }
 
@@ -192,20 +247,20 @@ public class DocFileController {
     }
 
     /** 담아 둔 그림. 알맹이는 그림 저장소에서 꺼내 온다. */
-    private List<DocxIoService.Drawing> savedPictures(Long workbookSeq) {
+    private List<DocContent.DocPicture> savedPictures(Long workbookSeq) {
         String saved = savedResource(workbookSeq, IMPORT_IMAGES);
         if (saved == null) {
             return List.of();
         }
         try {
-            List<DocxIoService.Drawing> drawings = new java.util.ArrayList<>();
+            List<DocContent.DocPicture> drawings = new java.util.ArrayList<>();
             for (DocImageDto placed : JSON.readValue(saved, DocImageDto[].class)) {
                 Long imageSeq = imageSeqOf(placed.url());
                 var row = imageSeq == null ? null : imageService.load(imageSeq);
                 if (row == null || row.imageData() == null) {
                     continue;
                 }
-                drawings.add(new DocxIoService.Drawing(placed.afterParagraphNo(),
+                drawings.add(new DocContent.DocPicture(placed.afterParagraphNo(),
                         row.imageData(), placed.width(), placed.height(),
                         placed.floating(), placed.behind(), placed.left(), placed.top()));
             }
@@ -338,14 +393,14 @@ public class DocFileController {
      *
      * <p>규칙은 xlsx 와 같다 - 윈도우가 못 쓰는 글자를 바꾸고 끝의 점과 공백을 뗀다.
      */
-    private String fileNameOf(Long workbookSeq) {
+    private String fileNameOf(Long workbookSeq, String extension) {
         String name = workbookService.getWorkbook(workbookSeq).workbookName();
         if (name == null) {
             name = "";
         }
         name = name.replaceAll("[\\\\/:*?\"<>|]", "_");
         name = name.replaceAll("^[\\s.]+|[\\s.]+$", "");
-        return (name.isEmpty() ? "문서" : name) + ".docx";
+        return (name.isEmpty() ? "문서" : name) + "." + extension;
     }
 
     /** 확장자는 제목에 넣지 않는다. 제목은 사람이 읽는 이름이다(시트에서 겪었다). */
